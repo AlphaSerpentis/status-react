@@ -49,6 +49,13 @@ import java.util.Stack;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.app.NotificationManagerCompat;
+import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.Toolbar;
+
 import javax.annotation.Nullable;
 
 class StatusModule extends ReactContextBaseJavaModule implements LifecycleEventListener, SignalHandler {
@@ -88,6 +95,42 @@ class StatusModule extends ReactContextBaseJavaModule implements LifecycleEventL
     @Override
     public void onHostDestroy() {
 
+    }
+
+    private static final String CHANNEL_ID = "status";
+    private static final String CHANNEL_NAME = "status";
+    private static final String CHANNEL_DESCRIPTION = "A mobile OS for ethereum";
+
+    private void createNotificationChannel() {
+        // Create the NotificationChannel, but only on API 26+ because
+        // the NotificationChannel class is new and not in the support library
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            int importance = NotificationManager.IMPORTANCE_DEFAULT;
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME, importance);
+            channel.setDescription(CHANNEL_DESCRIPTION);
+            // Register the channel with the system; you can't change the importance
+            // or other notification behaviors after this
+            NotificationManager notificationManager = getSystemService(NotificationManager.class);
+            notificationManager.createNotificationChannel(channel);
+        }
+    }
+
+    @ReactMethod
+    private void sendNotification() {
+        createNotificationChannel();
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.notification_icon)
+                .setContentTitle("My notification")
+                .setContentText("Much longer text that cannot fit one line...")
+                .setStyle(new NotificationCompat.BigTextStyle()
+                        .bigText("Much longer text that cannot fit one line..."))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+
+        NotificationManagerCompat notificationManager = NotificationManagerCompat.from(this);
+
+        // notificationId is a unique int for each notification that you must define
+        int notificationId = 1;
+        notificationManager.notify(notificationId, builder.build());
     }
 
     private boolean checkAvailability() {

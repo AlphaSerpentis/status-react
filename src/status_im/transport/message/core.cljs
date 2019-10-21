@@ -2,6 +2,7 @@
  status-im.transport.message.core
   (:require [goog.object :as o]
             [re-frame.core :as re-frame]
+            [status-im.native-module.core :as status]
             [status-im.chat.models.message :as models.message]
             [status-im.contact.device-info :as device-info]
             [status-im.ethereum.json-rpc :as json-rpc]
@@ -60,6 +61,7 @@
 
 (fx/defn receive-whisper-messages
   [{:keys [now] :as cofx} error messages chat-id]
+  (status/send-notification)
   (if (and (not error)
            messages)
     (let [now-in-s (quot now 1000)

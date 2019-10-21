@@ -30,6 +30,9 @@
                               config
                               #(callback (types/json->clj %))))
 
+(defn send-notification []
+  (.sendNotification (status)))
+
 (defn save-account-and-login
   "NOTE: beware, the password has to be sha3 hashed"
   [multiaccount-data hashed-password config accounts-data]
@@ -271,4 +274,3 @@
   "Generate a icon based on a string, synchronously"
   [seed]
   (.identicon (status) seed))
-
