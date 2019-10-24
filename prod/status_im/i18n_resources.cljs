@@ -6,6 +6,7 @@
 
 (def languages [:en :es_419 :fa :fr :ko :ms :pl :ru :zh_Hans_CN])
 
+
 (defonce loaded-languages
   (atom
    (conj #{:en} default-device-language)))
