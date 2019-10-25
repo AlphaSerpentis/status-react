@@ -68,7 +68,6 @@
       :zh_wuu     (js/require "status-modules/translations/zh_wuu.json")
       :zh_yue     (js/require "status-modules/translations/zh_yue.json")})
 
-
 (defn valid-language [lang]
   (if (contains? prod-translations lang)
     lang
