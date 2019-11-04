@@ -1,4 +1,5 @@
 import random
+import pytest
 
 from support.utilities import get_merged_txs_list
 from tests import marks, unique_password, common_password

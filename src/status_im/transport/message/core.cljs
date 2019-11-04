@@ -10,7 +10,6 @@
             [status-im.transport.message.protocol :as protocol]
             [status-im.transport.message.transit :as transit]
             [status-im.transport.utils :as transport.utils]
-            [status-im.tribute-to-talk.whitelist :as whitelist]
             [status-im.utils.config :as config]
             [status-im.utils.fx :as fx]
             [taoensso.timbre :as log]
@@ -26,19 +25,13 @@
   dedup-id is passed by status-go and is used to deduplicate messages at that layer.
   Once a message has been successfuly processed, that id needs to be sent back
   in order to stop receiving that message"
-  [cofx now-in-s filter-chat-id message-js]
+  [cofx now-in-s filter-chat-id message]
   (let [blocked-contacts (get-in cofx [:db :contacts/blocked] #{})
-        payload (.-payload message-js)
-        timestamp (.-timestamp (.-message message-js))
-        metadata-js (.-metadata message-js)
-        metadata {:author {:publicKey (.-publicKey (.-author metadata-js))
-                           :alias (.-alias (.-author metadata-js))
-                           :identicon (.-identicon (.-author metadata-js))}
-                  :dedupId (.-dedupId metadata-js)
-                  :encryptionId (.-encryptionId metadata-js)
-                  :messageId (.-messageId metadata-js)}
-        raw-payload  {:raw-payload message-js}
+        {{:keys [payload timestamp]} :message
+         metadata :metadata
+         raw-payload :raw-payload} (add-raw-payload message)
         status-message (-> payload
+                           ethereum/hex-to-utf8
                            transit/deserialize)
         sig (-> metadata :author :publicKey)]
     (when (and sig
@@ -76,24 +69,21 @@
       (apply fx/merge cofx receive-message-fxs))
     (log/error "Something went wrong" error messages)))
 
-(fx/defn receive-messages [cofx event-js]
+(fx/defn receive-messages [cofx event]
   (let [fxs (keep
-             (fn [message-specs]
-               (let [chat (.-chat message-specs)
-                     messages (.-messages message-specs)
-                     error (.-error message-specs)]
-                 (when (seq messages)
-                   (receive-whisper-messages
-                    error
-                    messages
+             (fn [{:keys [chat messages error]}]
+               (when (seq messages)
+                 (receive-whisper-messages
+                  error
+                  messages
                   ;; For discovery and negotiated filters we don't
                   ;; set a chatID, and we use the signature of the message
                   ;; to indicate which chat it is for
-                    (if (or (.-discovery chat)
-                            (.-negotiated chat))
-                      nil
-                      (.-chatId chat))))))
-             (.-messages event-js))]
+                  (if (or (:discovery chat)
+                          (:negotiated chat))
+                    nil
+                    (:chatId chat)))))
+             (:messages event))]
     (apply fx/merge cofx fxs)))
 
 (fx/defn remove-hash
@@ -190,21 +180,3 @@
                      :params [confirmations]
                      :on-success #(log/debug "successfully confirmed messages")
                      :on-failure #(log/error "failed to confirm messages" %)}))))
-
-(fx/defn receive-transit-message [cofx message chat-id signature timestamp]
-  (let [received-message-fx {:chat-received-message/add-fx
-                             [(assoc (into {} message)
-                                     :message-id
-                                     (get-in cofx [:metadata :messageId])
-                                     :chat-id chat-id
-                                     :whisper-timestamp timestamp
-                                     :alias (get-in cofx [:metadata :author :alias])
-                                     :identicon (get-in cofx [:metadata :author :identicon])
-                                     :from signature
-                                     :metadata (:metadata cofx)
-                                     :js-obj (:js-obj cofx))]}]
-    (whitelist/filter-message cofx
-                              received-message-fx
-                              (:message-type message)
-                              (get-in message [:content :tribute-transaction])
-                              signature)))
