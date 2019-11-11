@@ -2,6 +2,8 @@
   (:require [clojure.string :as string]
             [re-frame.core :as re-frame]
             [status-im.multiaccounts.core :as multiaccounts]
+            [status-im.data-store.messages :as data-store.messages]
+
             [status-im.multiaccounts.create.core :as multiaccounts.create]
             [status-im.multiaccounts.login.core :as multiaccounts.login]
             [status-im.multiaccounts.logout.core :as multiaccounts.logout]
@@ -35,7 +37,6 @@
             [status-im.mailserver.constants :as mailserver.constants]
             [status-im.mailserver.topics :as mailserver.topics]
             [status-im.node.core :as node]
-            [status-im.notifications.core :as notifications]
             [status-im.pairing.core :as pairing]
             [status-im.privacy-policy.core :as privacy-policy]
             [status-im.protocol.core :as protocol]
@@ -164,7 +165,10 @@
 (handlers/register-handler-fx
  :multiaccounts.logout.ui/logout-confirmed
  (fn [cofx _]
-   (multiaccounts.logout/logout cofx)))
+   (fx/merge
+    cofx
+    (data-store.messages/save-messages)
+    (multiaccounts.logout/logout))))
 
 ;; multiaccounts update module
 
@@ -633,11 +637,6 @@
    (chat/disable-chat-cooldown cofx)))
 
 (handlers/register-handler-fx
- :message/add
- (fn [cofx [_ messages]]
-   (chat.message/receive-many cofx messages)))
-
-(handlers/register-handler-fx
  :message/update-message-status
  (fn [cofx [_ chat-id message-id status]]
    (chat.message/update-message-status cofx chat-id message-id status)))
@@ -659,23 +658,6 @@
  (fn [cofx [_ event-str]]
    (log/debug :event-str event-str)
    (signals/process cofx event-str)))
-
-;; notifications module
-
-(handlers/register-handler-fx
- :notifications/notification-open-event-received
- (fn [cofx [_ decoded-payload ctx]]
-   (notifications/handle-push-notification-open cofx decoded-payload ctx)))
-
-(handlers/register-handler-fx
- :notifications.callback/get-fcm-token-success
- (fn [{:keys [db]} [_ fcm-token]]
-   {:db (assoc-in db [:notifications :fcm-token] fcm-token)}))
-
-(handlers/register-handler-fx
- :notifications.callback/on-message
- (fn [cofx [_ decoded-payload opts]]
-   (notifications/handle-on-message cofx decoded-payload opts)))
 
 ;; hardwallet module
 
@@ -1255,12 +1237,6 @@
    (hardwallet/navigate-to-keycard-settings cofx)))
 
 ;; transport module
-
-(handlers/register-handler-fx
- :transport/messages-received
- [handlers/logged-in (re-frame/inject-cofx :random-id-generator)]
- (fn [cofx [_ js-error js-messages chat-id]]
-   (transport.message/receive-whisper-messages cofx js-error js-messages chat-id)))
 
 (handlers/register-handler-fx
  :transport/send-status-message-error

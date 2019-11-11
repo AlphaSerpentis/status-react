@@ -3,14 +3,17 @@
   androidPkgs, xcodeWrapper }:
 
 let
-  inherit (stdenv.lib) catAttrs concatStrings fileContents importJSON makeBinPath optional optionalString strings;
+  inherit (stdenv.lib)
+    catAttrs concatStrings fileContents importJSON makeBinPath
+    optional optionalString removePrefix strings attrValues mapAttrs;
+ 
   platform = callPackage ../platform.nix { inherit target-os; };
   utils = callPackage ../utils.nix { inherit xcodeWrapper; };
   gomobile = callPackage ./gomobile { inherit (androidPkgs) platform-tools; inherit target-os xcodeWrapper utils buildGoPackage; };
   buildStatusGoDesktopLib = callPackage ./build-desktop-status-go.nix { inherit buildGoPackage go xcodeWrapper utils; };
   buildStatusGoMobileLib = callPackage ./build-mobile-status-go.nix { inherit buildGoPackage go gomobile xcodeWrapper utils; };
-  extractStatusGoConfig = callPackage ./extract-status-go-config.nix { inherit (stdenv) lib; };
   versionJSON = importJSON ../../status-go-version.json; # TODO: Simplify this path search with lib.locateDominatingFile
+  versionRegex = "^v?[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+(-[[:alnum:].]+)$";
   owner = versionJSON.owner;
   repo = versionJSON.repo;
   version = versionJSON.version;
@@ -53,8 +56,22 @@ let
   currentHostConfig = if stdenv.isDarwin then hostConfigs.darwin else hostConfigs.linux;
 
   goBuildFlags = "-v";
-  # TODO: Manage to pass "-s -w" to -ldflags. Seems to only accept a single flag
-  goBuildLdFlags = "-ldflags=-s";
+  # status-go params to be set at build time, important for About section and metrics
+  goBuildParams = {
+    GitCommit = rev;
+    Version = if (builtins.match versionRegex version) != null
+      then removePrefix "v" version # Geth forces a 'v' prefix
+      else "develop"; # to reduce metrics cardinality in Prometheus
+  };
+  # These are necessary for status-go to show correct version
+  paramsLdFlags = attrValues (mapAttrs (name: value:
+    "-X github.com/status-im/status-go/params.${name}=${value}"
+  ) goBuildParams);
+
+  goBuildLdFlags = paramsLdFlags ++ [
+    "-s" # -s disabled symbol table
+    "-w" # -w disables DWARF debugging information
+  ];
 
   statusGoArgs = { inherit owner repo rev version goPackagePath src goBuildFlags goBuildLdFlags; };
   status-go-packages = {

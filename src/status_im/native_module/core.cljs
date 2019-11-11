@@ -30,6 +30,12 @@
                               config
                               #(callback (types/json->clj %))))
 
+(defn enable-notifications []
+  (.enableNotifications (status)))
+
+(defn disable-notifications []
+  (.disableNotifications (status)))
+
 (defn save-account-and-login
   "NOTE: beware, the password has to be sha3 hashed"
   [multiaccount-data hashed-password config accounts-data]
@@ -187,10 +193,6 @@
   [data account hashed-password callback]
   (.signTypedData (status) data account hashed-password callback))
 
-(defn send-data-notification
-  [{:keys [data-payload tokens] :as m} on-result]
-  (.sendDataNotification (status) data-payload tokens on-result))
-
 (defn send-logs [dbJson js-logs callback]
   (.sendLogs (status) dbJson js-logs callback))
 
@@ -271,4 +273,3 @@
   "Generate a icon based on a string, synchronously"
   [seed]
   (.identicon (status) seed))
-

@@ -1,5 +1,5 @@
 import random
-import pytest
+import string
 
 from support.utilities import get_merged_txs_list
 from tests import marks, unique_password, common_password
@@ -120,34 +120,59 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         if send_transaction.element_by_text_part('Transaction sent').is_element_displayed():
             self.driver.fail('Transaction was sent with a wrong password')
 
-    @marks.testrail_id(1452)
-
-    def test_transaction_appears_in_history(self):
-        recipient = basic_user
+    @marks.testrail_id(6237)
+    @marks.high
+    def test_fetching_balance_after_offline(self):
+        sender = wallet_users['A']
         sign_in_view = SignInView(self.driver)
-        sign_in_view.create_user()
+
+        sign_in_view.just_fyi('Restore account with funds offline')
+        sign_in_view.toggle_airplane_mode()
+        sign_in_view.access_key_button.click()
+        sign_in_view.recover_access(sender['passphrase'])
         home_view = sign_in_view.get_home_view()
-        transaction_amount = home_view.get_unique_amount()
-        sender_public_key = home_view.get_public_key()
-        sender_address = home_view.public_key_to_address(sender_public_key)
-        home_view.home_button.click()
-        self.network_api.get_donate(sender_address)
         wallet_view = home_view.wallet_button.click()
         wallet_view.set_up_wallet()
-        wallet_view.wait_balance_changed_on_wallet_screen()
-        send_transaction = wallet_view.send_transaction_button.click()
-        send_transaction.amount_edit_box.click()
-        send_transaction.amount_edit_box.set_value(transaction_amount)
-        send_transaction.confirm()
-        send_transaction.chose_recipient_button.click()
-        send_transaction.enter_recipient_address_button.click()
-        send_transaction.enter_recipient_address_input.set_value(recipient['address'])
-        send_transaction.done_button.click()
-        send_transaction.sign_transaction_button.click()
-        send_transaction.sign_transaction()
-        self.network_api.find_transaction_by_unique_amount(recipient['address'], transaction_amount)
+
+        sign_in_view.just_fyi('Go back to online and check that balance is updated')
+        sign_in_view.toggle_airplane_mode()
+        wallet_view.wait_balance_is_changed('ETHro')
+        wallet_view.wait_balance_is_changed('STT')
+
+        sign_in_view.just_fyi('Send some tokens to other account')
+        recipient = "0x" + basic_user['address']
+        sending_amount = wallet_view.get_unique_amount()
+        asset = 'STT'
+        wallet_view.accounts_status_account.click_until_presence_of_element(wallet_view.send_transaction_button)
+        wallet_view.send_transaction(asset_name=asset, amount=sending_amount, recipient=recipient,
+                                     sign_transaction=True)
+        sign_in_view.toggle_airplane_mode()
+        self.network_api.wait_for_confirmation_of_transaction(basic_user['address'], sending_amount, token=True)
+
+        sign_in_view.just_fyi('Change that balance is updated')
+        initial_amount_STT = wallet_view.get_asset_amount_by_name('STT')
+        sign_in_view.toggle_airplane_mode()
+        wallet_view.wait_balance_is_changed('STT', initial_amount_STT)
+
+    @marks.testrail_id(6236)
+    @marks.medium
+    def test_transaction_appears_in_history(self):
+        sign_in_view = SignInView(self.driver)
+        home_view = sign_in_view.create_user()
+        wallet_view = home_view.wallet_button.click()
+        wallet_view.set_up_wallet()
+
+        address = wallet_view.get_wallet_address()[2:]
+        self.network_api.get_donate(address)
+        wallet_view.wait_balance_is_equal_expected_amount()
+        recipient = "0x"+basic_user['address']
+        sending_amount = "0.08"
+        asset = 'ETHro'
+        wallet_view.send_transaction(asset_name=asset, amount=sending_amount, recipient=recipient, sign_transaction=True)
+        wallet_view.wait_balance_is_changed(asset, wallet_view.get_asset_amount_by_name(asset))
         transactions_view = wallet_view.transaction_history_button.click()
-        transactions_view.transactions_table.find_transaction(amount=transaction_amount)
+        transactions_view.transactions_table.find_transaction(amount=sending_amount)
+        transactions_view.transactions_table.find_transaction(amount="0.1")
 
     @marks.testrail_id(5461)
     @marks.medium
@@ -229,7 +254,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         send_transaction.sign_transaction()
         self.network_api.find_transaction_by_unique_amount(recipient['address'], amount, token=True, decimals=7)
 
-    @marks.testrail_id(5351)
+    @marks.testrail_id(5350)
     @marks.high
     def test_token_with_more_than_allowed_decimals(self):
         sender = wallet_users['C']
@@ -258,7 +283,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         # error_text = 'Amount is too precise. Max number of decimals is 7.'
         # if not send_transaction.element_by_text(error_text).is_element_displayed():
         #     self.errors.append('Warning about too precise amount is not shown when requesting a transaction')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5423)
     @marks.medium
@@ -269,7 +294,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         wallet_view = sign_in_view.wallet_button.click()
         wallet_view.set_up_wallet()
         wallet_view.accounts_status_account.click()
-        bigger_amount = wallet_view.get_eth_value() + 1
+        bigger_amount = wallet_view.get_asset_amount_by_name('ETHro') + 1
         send_transaction = wallet_view.send_transaction_button.click()
         amount_edit_box = send_transaction.amount_edit_box
         amount_edit_box.click()
@@ -307,7 +332,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         send_transaction.amount_edit_box.set_value(1)
         if not error_text.is_element_displayed():
             self.errors.append("'Insufficient funds' error is now shown when sending 1 STT from wallet with balance 0")
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5412)
     @marks.high
@@ -317,8 +342,8 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         sign_in_view.recover_access(sender['passphrase'])
         wallet_view = sign_in_view.wallet_button.click()
         wallet_view.set_up_wallet()
-        eth_value = wallet_view.get_eth_value()
-        stt_value = wallet_view.get_stt_value()
+        eth_value = wallet_view.get_asset_amount_by_name('ETHro')
+        stt_value = wallet_view.get_asset_amount_by_name('STT')
         if eth_value == 0 or stt_value == 0:
             self.driver.fail('No funds!')
         wallet_view.accounts_status_account.click()
@@ -337,7 +362,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
             self.errors.append(
                 "'Insufficient funds' error is now shown when sending %s STT from wallet with balance %s" % (
                     round(stt_value + 1), stt_value))
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5359)
     @marks.critical
@@ -363,7 +388,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         send_transaction.gas_limit_input.clear()
         send_transaction.gas_limit_input.set_value('1')
         send_transaction.gas_price_input.clear()
-        send_transaction.gas_price_input.set_value('1')
+        send_transaction.gas_price_input.send_keys('1')
         send_transaction.update_fee_button.click()
         send_transaction.sign_with_password.click_until_presence_of_element(send_transaction.enter_password_input)
         send_transaction.enter_password_input.send_keys(common_password)
@@ -378,7 +403,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         send_transaction.gas_limit_input.set_value(gas_limit)
         send_transaction.gas_price_input.clear()
         gas_price = str(round(float(send_transaction.gas_price_input.text)) + 10)
-        send_transaction.gas_price_input.set_value(gas_price)
+        send_transaction.gas_price_input.send_keys(gas_price)
         send_transaction.update_fee_button.click()
         send_transaction.sign_transaction()
         self.network_api.find_transaction_by_unique_amount(sender['address'], amount)
@@ -413,7 +438,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
                 self.errors.append('Transactions recipients do not match!')
             transactions_details.back_button.click()
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5429)
     @marks.medium
@@ -481,7 +506,7 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         wallet_view.get_account_by_name(account_name).click()
         wallet_view.send_transaction_button.click()
         wallet_view.back_button.click()
-        balance_after_receiving_tx = float(wallet_view.eth_asset_value.text)
+        balance_after_receiving_tx = float(wallet_view.get_asset_amount_by_name('ETHro'))
         expected_balance = self.network_api.get_rounded_balance(balance_after_receiving_tx, transaction_amount)
         if balance_after_receiving_tx != expected_balance:
             self.driver.fail('New account balance %s does not match expected %s after receiving a transaction' % (
@@ -511,13 +536,45 @@ class TestTransactionWalletSingleDevice(SingleDeviceTestCase):
         send_transaction.back_button.click()
         balance_of_sub_account = float(self.network_api.get_balance(sub_account_address)) / 1000000000000000000
         balance_of_status_account = float(self.network_api.get_balance(status_account_address)) / 1000000000000000000
-        total_eth_from_two_accounts = float(wallet_view.eth_asset_value.text)
+        total_eth_from_two_accounts = float(wallet_view.get_asset_amount_by_name('ETHro'))
         expected_balance = self.network_api.get_rounded_balance(total_eth_from_two_accounts,
                                                                 (balance_of_status_account + balance_of_sub_account))
 
         if total_eth_from_two_accounts != expected_balance:
             self.driver.fail('Total wallet balance %s != of Status account (%s) + SubAccount (%s)' % (
                 total_eth_from_two_accounts, balance_of_status_account, balance_of_sub_account))
+
+    @marks.testrail_id(6235)
+    @marks.medium
+    def test_can_change_account_settings(self):
+        sign_in_view = SignInView(self.driver)
+        sign_in_view.create_user()
+        wallet_view = sign_in_view.wallet_button.click()
+        wallet_view.set_up_wallet()
+        status_account_address = wallet_view.get_wallet_address()
+        wallet_view.account_options_button.click()
+
+        wallet_view.just_fyi('open Account Settings screen and check that all elements are shown')
+        wallet_view.account_settings_button.click()
+        for text in 'On Status tree', status_account_address, "m/44'/60'/0'/0/0":
+            if not wallet_view.element_by_text(text).is_element_displayed():
+                self.errors.append("'%s' text is not shown on Account Settings screen!" % text)
+
+        wallet_view.just_fyi('change account name/color and verified applied changes')
+        account_name = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+        wallet_view.account_name_input.send_keys(account_name)
+        wallet_view.account_color_button.select_color_by_position(1)
+        wallet_view.apply_settings_button.click()
+        wallet_view.element_by_text('This device').scroll_to_element()
+        wallet_view.back_button.click()
+        wallet_view.back_button.click()
+        account_button = wallet_view.get_account_by_name(account_name)
+        if not account_button.is_element_displayed():
+            self.driver.fail('Account name was not changed')
+        if not account_button.color_matches('multi_account_color.png'):
+            self.driver.fail('Account color does not match expected')
+
+        self.errors.verify_no_errors()
 
 
 @marks.transaction
@@ -559,4 +616,4 @@ class TestTransactionWalletMultipleDevice(MultipleDeviceTestCase):
         chat_2 = home_2.get_chat_with_user(sender['username']).click()
         if not chat_2.chat_element_by_text(amount).is_element_displayed():
             self.errors.append('Transaction message is not shown in 1-1 chat for the recipient')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()

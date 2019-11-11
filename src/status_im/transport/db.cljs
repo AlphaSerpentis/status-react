@@ -20,7 +20,6 @@
                                        :opt-un [:contact/system-tags
                                                 :contact/last-updated
                                                 :contact/last-online
-                                                :contact/fcm-token
                                                 :pairing/pending?
                                                 :contact/tags]))
 (spec/def :pairing/contacts (spec/nilable (spec/map-of :global/not-empty-string :pairing/contact)))
@@ -54,7 +53,6 @@
 
 (spec/def :message.content/text (spec/and string? (complement s/blank?)))
 (spec/def :message.content/response-to string?)
-(spec/def :message.content/response-to-v2 string?)
 (spec/def :message.content/command-path (spec/tuple string? (spec/coll-of (spec/or :scope keyword? :chat-id string?) :kind set? :min-count 1)))
 (spec/def :message.content/uri (spec/and string? (complement s/blank?)))
 (spec/def :message.content/pack (spec/and string? (complement s/blank?)))
@@ -77,9 +75,9 @@
                              :message/message-seen :message/message-seen
                              :message/group-membership-update :message/group-membership-update))
 
-(spec/def :message/contact-request (spec/keys :req-un [:contact/name ::profile-image :contact/address :contact/fcm-token]))
-(spec/def :message/contact-update (spec/keys :req-un [:contact/name ::profile-image :contact/address :contact/fcm-token]))
-(spec/def :message/contact-request-confirmed (spec/keys :req-un [:contact/name ::profile-image :contact/address :contact/fcm-token]))
+(spec/def :message/contact-request (spec/keys :req-un [:contact/name ::profile-image :contact/address]))
+(spec/def :message/contact-update (spec/keys :req-un [:contact/name ::profile-image :contact/address]))
+(spec/def :message/contact-request-confirmed (spec/keys :req-un [:contact/name ::profile-image :contact/address]))
 (spec/def :message/new-contact-key (spec/keys :req-un [::sym-key ::topic ::message]))
 
 (spec/def :message/message-seen (spec/keys :req-un [:message/ids]))

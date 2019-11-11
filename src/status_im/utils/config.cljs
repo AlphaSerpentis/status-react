@@ -31,6 +31,8 @@
 (def max-message-delivery-attempts (js/parseInt (get-config :MAX_MESSAGE_DELIVERY_ATTEMPTS "6")))
 (def contract-nodes-enabled? (enabled? (get-config :CONTRACT_NODES "0")))
 (def mobile-ui-for-desktop? (enabled? (get-config :MOBILE_UI_FOR_DESKTOP "0")))
+;; NOTE: only disabled in releases
+(def local-notifications? (enabled? (get-config :LOCAL_NOTIFICATIONS "1")))
 
 ;; CONFIG VALUES
 (def log-level
@@ -40,7 +42,7 @@
 (def log-level-status-go
   (-> (get-config :LOG_LEVEL_STATUS_GO "")
       string/upper-case))
-(def fleet (get-config :FLEET "eth.beta"))
+(def fleet (get-config :FLEET "eth.staging"))
 (def default-network (get-config :DEFAULT_NETWORK))
 (def pow-target (js/parseFloat (get-config :POW_TARGET "0.002")))
 (def pow-time (js/parseInt (get-config :POW_TIME "1")))

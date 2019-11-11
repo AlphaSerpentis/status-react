@@ -1,22 +1,19 @@
 (ns status-im.ui.screens.chat.message.message
   (:require [re-frame.core :as re-frame]
-            [status-im.chat.commands.core :as commands]
-            [status-im.chat.commands.protocol :as protocol]
             [status-im.chat.commands.receiving :as commands-receiving]
             [status-im.constants :as constants]
             [status-im.i18n :as i18n]
-            [status-im.ui.components.action-sheet :as action-sheet]
             [status-im.ui.components.colors :as colors]
             [status-im.ui.components.icons.vector-icons :as vector-icons]
             [status-im.ui.components.list-selection :as list-selection]
             [status-im.ui.components.popup-menu.views :as desktop.pop-up]
             [status-im.ui.components.react :as react]
+            [status-im.ui.screens.chat.message.sheets :as sheets]
             [status-im.ui.screens.chat.photos :as photos]
             [status-im.ui.screens.chat.styles.message.message :as style]
             [status-im.ui.screens.chat.utils :as chat.utils]
             [status-im.utils.contenthash :as contenthash]
-            [status-im.utils.platform :as platform]
-            [status-im.utils.config :as config])
+            [status-im.utils.platform :as platform])
   (:require-macros [status-im.utils.views :refer [defview letsubs]]))
 
 (defview message-content-command
@@ -44,16 +41,20 @@
                                                                     (get content :command-ref))
     content content-type]])
 
-(defview quoted-message [{:keys [from text]} outgoing current-public-key]
-  (letsubs [{:keys [username alias]} [:contacts/contact-name-by-identity from]]
-    [react/view {:style (style/quoted-message-container outgoing)}
-     [react/view {:style style/quoted-message-author-container}
-      [vector-icons/tiny-icon :tiny-icons/tiny-reply {:color (if outgoing colors/white-transparent colors/gray)}]
-      (chat.utils/format-reply-author from alias username current-public-key (partial style/quoted-message-author outgoing))]
+(defview quoted-message [message-id {:keys [from text]} outgoing current-public-key]
+  (letsubs [{:keys [quote
+                    ens-name
+                    alias]}
+            [:messages/quote-info message-id]]
+    (when (or quote text)
+      [react/view {:style (style/quoted-message-container outgoing)}
+       [react/view {:style style/quoted-message-author-container}
+        [vector-icons/tiny-icon :tiny-icons/tiny-reply {:color (if outgoing colors/white-transparent colors/gray)}]
+        (chat.utils/format-reply-author (or from (:from quote)) alias ens-name current-public-key (partial style/quoted-message-author outgoing))]
 
-     [react/text {:style           (style/quoted-message-text outgoing)
-                  :number-of-lines 5}
-      text]]))
+       [react/text {:style           (style/quoted-message-text outgoing)
+                    :number-of-lines 5}
+        (or text (:text quote))]])))
 
 (defview message-content-status [{:keys [content]}]
   [react/view style/status-container
@@ -66,12 +67,14 @@
    (i18n/label (if expanded? :show-less :show-more))])
 
 (defn text-message
-  [{:keys [chat-id message-id content timestamp-str group-chat outgoing current-public-key expanded?] :as message}]
+  [{:keys [chat-id message-id content
+           timestamp-str group-chat outgoing current-public-key expanded?] :as message}]
   [message-view message
-   (let [collapsible? (and (:should-collapse? content) group-chat)]
+   (let [response-to (:response-to content)
+         collapsible? (and (:should-collapse? content) group-chat)]
      [react/view
-      (when (:response-to content)
-        [quoted-message (:response-to content) outgoing current-public-key])
+      (when response-to
+        [quoted-message response-to (:quoted-message message) outgoing current-public-key])
       (apply react/nested-text
              (cond-> {:style (style/text-message collapsible? outgoing)
                       :text-break-strategy :balanced
@@ -93,12 +96,13 @@
 
 (defn emoji-message
   [{:keys [content current-public-key alias] :as message}]
-  [message-view message
-   [react/view {:style (style/style-message-text false)}
-    (when (:response-to content)
-      [quoted-message (:response-to content) alias false current-public-key])
-    [react/text {:style (style/emoji-message message)}
-     (:text content)]]])
+  (let [response-to (:response-to content)]
+    [message-view message
+     [react/view {:style (style/style-message-text false)}
+      (when response-to
+        [quoted-message response-to (:quoted-message message) alias false current-public-key])
+      [react/text {:style (style/emoji-message message)}
+       (:text content)]]]))
 
 (defmulti message-content (fn [_ message _] (message :content-type)))
 
@@ -145,25 +149,14 @@
 (defn message-not-sent-text
   [chat-id message-id]
   [react/touchable-highlight
-   {:on-press (fn [] (cond
-                       platform/ios?
-                       (action-sheet/show
-                        {:title   (i18n/label :message-not-sent)
-                         :options [{:label  (i18n/label :resend-message)
-                                    :action #(re-frame/dispatch
-                                              [:chat.ui/resend-message chat-id message-id])}
-                                   {:label        (i18n/label :delete-message)
-                                    :destructive? true
-                                    :action       #(re-frame/dispatch
-                                                    [:chat.ui/delete-message chat-id message-id])}]})
-                       platform/desktop?
+   {:on-press (fn [] (if platform/desktop?
                        (desktop.pop-up/show-desktop-menu
                         (desktop.pop-up/get-message-menu-items chat-id message-id))
-
-                       :else
-                       (re-frame/dispatch
-                        [:chat.ui/show-message-options {:chat-id    chat-id
-                                                        :message-id message-id}])))}
+                       (do
+                         (re-frame/dispatch [:bottom-sheet/show-sheet
+                                             {:content        (sheets/options chat-id message-id)
+                                              :content-height 200}])
+                         (react/dismiss-keyboard!))))}
    [react/view style/not-sent-view
     [react/text {:style style/not-sent-text}
      (i18n/label (if platform/desktop?
@@ -183,12 +176,13 @@
 
 (defn message-delivery-status
   [{:keys [chat-id message-id outgoing-status
-           content last-outgoing? message-type] :as message}]
+           first-outgoing?
+           content message-type] :as message}]
   (when (not= :system-message message-type)
     (case outgoing-status
       :sending  [message-activity-indicator]
       :not-sent [message-not-sent-text chat-id message-id]
-      :sent     (when last-outgoing?
+      :sent     (when first-outgoing?
                   [react/view style/delivery-view
                    [react/text {:style style/delivery-text}
                     (i18n/label :t/status-sent)]])
@@ -200,9 +194,10 @@
   (chat.utils/format-author alias style/message-author-name name))
 
 (defn message-body
-  [{:keys [last-in-group?
+  [{:keys [alias
+           last-in-group?
+           first-in-group?
            display-photo?
-           alias
            display-username?
            from
            outgoing
@@ -212,7 +207,7 @@
    [react/view (style/message-body message)
     (when display-photo?
       [react/view (style/message-author outgoing)
-       (when last-in-group?
+       (when first-in-group?
          [react/touchable-highlight {:on-press #(when-not modal? (re-frame/dispatch [:chat.ui/show-profile from]))}
           [react/view
            [photos/member-photo from]]])])

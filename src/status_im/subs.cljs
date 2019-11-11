@@ -9,6 +9,7 @@
             [status-im.chat.constants :as chat.constants]
             [status-im.chat.db :as chat.db]
             [status-im.chat.models :as chat.models]
+            [status-im.chat.models.message-list :as models.message-list]
             [status-im.constants :as constants]
             [status-im.contact.db :as contact.db]
             [status-im.ethereum.core :as ethereum]
@@ -107,6 +108,8 @@
 (reg-root-key-sub :my-profile/advanced? :my-profile/advanced?)
 (reg-root-key-sub :my-profile/editing? :my-profile/editing?)
 (reg-root-key-sub :my-profile/profile :my-profile/profile)
+(reg-root-key-sub :profile/photo-added? :profile/photo-added?)
+
 ;;multiaccount
 (reg-root-key-sub :multiaccounts/multiaccounts :multiaccounts/multiaccounts)
 (reg-root-key-sub :multiaccounts/login :multiaccounts/login)
@@ -332,6 +335,12 @@
  :height)
 
 (re-frame/reg-sub
+ :dimensions/small-screen?
+ :<- [:dimensions/window-height]
+ (fn [height]
+   (< height 550)))
+
+(re-frame/reg-sub
  :get-screen-params
  :<- [:screen-params]
  :<- [:view-id]
@@ -478,6 +487,12 @@
  :<- [:get-screen-params :wallet-account]
  (fn [[macc acc]]
    (some #(when (= (:address %) (:address acc)) %) (:accounts macc))))
+
+(re-frame/reg-sub
+ :multiple-multiaccounts?
+ :<- [:multiaccounts/multiaccounts]
+ (fn [multiaccounts]
+   (> (count multiaccounts) 1)))
 
 ;;CHAT ==============================================================================================================
 
@@ -729,18 +744,39 @@
    (:public? chat)))
 
 (re-frame/reg-sub
+ :chats/message-list
+ :<- [:chats/current-chat]
+ (fn [chat]
+   (:message-list chat)))
+
+(re-frame/reg-sub
+ :chats/messages
+ :<- [:chats/current-chat]
+ (fn [chat]
+   (:messages chat)))
+
+(defn hydrate-messages
+  "Pull data from messages and add it to the sorted list"
+  [message-list messages]
+  (keep #(if (= :message (% :type))
+           (when-let [message (messages (% :message-id))]
+             (merge message %))
+           %)
+        message-list))
+
+(re-frame/reg-sub
  :chats/current-chat-messages-stream
- :<- [:chats/current-chat-messages]
- :<- [:chats/current-chat-message-groups]
+ :<- [:chats/message-list]
+ :<- [:chats/messages]
  :<- [:chats/messages-gaps]
  :<- [:chats/range]
  :<- [:chats/all-loaded?]
  :<- [:chats/public?]
- (fn [[messages message-groups messages-gaps range all-loaded? public?]]
-   (-> (chat.db/sort-message-groups message-groups messages)
-       (chat.db/messages-with-datemarks
-        messages messages-gaps range all-loaded? public?)
-       chat.db/messages-stream)))
+ (fn [[message-list messages messages-gaps range all-loaded? public?]]
+   (-> (models.message-list/->seq message-list)
+       (chat.db/add-datemarks)
+       (hydrate-messages messages)
+       (chat.db/add-gaps messages-gaps range all-loaded? public?))))
 
 (re-frame/reg-sub
  :chats/current-chat-intro-status
@@ -1571,13 +1607,36 @@
  (fn [[contacts current-multiaccount] [_ identity]]
    (let [me? (= (:public-key current-multiaccount) identity)]
      (if me?
-       {:username (:name current-multiaccount)
+       {:ens-name (:preferred-name current-multiaccount)
         :alias (gfycat/generate-gfy identity)}
        (let [contact (or (contacts identity)
                          (contact.db/public-key->new-contact identity))]
          {:username (:name contact)
           :alias (or (:alias contact)
                      (gfycat/generate-gfy identity))})))))
+
+(re-frame/reg-sub
+ :messages/quote-info
+ :<- [:chats/messages]
+ :<- [:contacts/contacts]
+ :<- [:multiaccount]
+ (fn [[messages contacts current-multiaccount] [_ message-id]]
+   (when-let [message (get messages message-id)]
+     (let [identity (:from message)
+           me? (= (:public-key current-multiaccount) identity)]
+       (if me?
+         {:quote       {:from  identity
+                        :text (get-in message [:content :text])}
+          :ens-name (:preferred-name current-multiaccount)
+          :alias (gfycat/generate-gfy identity)}
+         (let [contact (or (contacts identity)
+                           (contact.db/public-key->new-contact identity))]
+           {:quote     {:from  identity
+                        :text (get-in message [:content :text])}
+            :ens-name  (when (:ens-verified contact)
+                         (:name contact))
+            :alias (or (:alias contact)
+                       (gfycat/generate-gfy identity))}))))))
 
 (re-frame/reg-sub
  :contacts/all-contacts-not-in-current-chat
@@ -1822,7 +1881,7 @@
               :step step
               :state (or state (if snt-amount :completed :disabled))
               :editing? editing?
-              :fiat-value (str "~" fiat-value " " (:code currency))}
+              :fiat-value (str fiat-value " " (:code currency))}
 
        (= step :set-snt-amount)
        (assoc :snt-amount (str screen-snt-amount)

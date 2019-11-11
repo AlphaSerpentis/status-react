@@ -2,7 +2,8 @@ import pytest
 import re
 
 from tests import marks, bootnode_address, mailserver_address, camera_access_error_text, \
-    photos_access_error_text, test_dapp_url, test_dapp_name
+    photos_access_error_text, test_dapp_url, test_dapp_name, mailserver_staging_ams_1, mailserver_staging_central_1, \
+    mailserver_staging_hk
 from tests.base_test_case import SingleDeviceTestCase, MultipleDeviceTestCase
 from tests.users import transaction_senders, basic_user, ens_user
 from views.dapps_view import DappsView
@@ -54,7 +55,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
         chat.send_message_button.click()
         if not chat.chat_element_by_text(message).is_element_displayed():
             self.errors.append("Message was not sent!")
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(6228)
     @marks.high
@@ -106,7 +107,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
             self.errors.append("Mobile data is enabled by default")
         if not profile_view.ask_me_when_on_mobile_network.attribute_value("checked"):
             self.errors.append("'Ask me when on mobile network' is not enabled by default")
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
 
     @marks.testrail_id(5454)
@@ -148,7 +149,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
         wallet.share_via_messenger()
         if not wallet.element_by_text_part(address).is_element_present():
             self.errors.append("Can't share address")
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5375)
     @marks.high
@@ -186,7 +187,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
         chat.paste_text()
         if chat.chat_message_input.text != address:
             self.errors.append('Wallet address was not copied')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5502)
     @marks.critical
@@ -219,7 +220,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
             self.errors.append('No ENS name is shown in own profile after adding')
         if not dapp_view.element_by_text('%s.stateofus.eth' % ens_user['ens']).is_element_displayed():
             self.errors.append('No ENS name is shown in own profile after adding')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5475)
     @marks.low
@@ -234,8 +235,8 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
                     file_name.replace('.png', '_profile.png')):
                 self.driver.fail('Profile picture was not updated')
 
-    @marks.testrail_id(5329)
-    @marks.critical
+    @marks.testrail_id(6239)
+    @marks.medium
     def test_backup_recovery_phrase(self):
         sign_in_view = SignInView(self.driver)
         sign_in_view.create_user()
@@ -255,7 +256,34 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
         profile_view.backup_recovery_phrase_button.click()
         if not profile_view.backup_recovery_phrase_button.is_element_displayed():
             self.errors.append('Back up seed phrase option is available after seed phrase backed up!')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
+
+    @marks.testrail_id(5329)
+    @marks.critical
+    def test_recover_account_from_new_user_seedphrase(self):
+        sign_in_view = SignInView(self.driver)
+        sign_in_view.create_user()
+        profile_view = sign_in_view.profile_button.click()
+        profile_view.privacy_and_security_button.click()
+        profile_view.backup_recovery_phrase_button.click()
+        profile_view.ok_continue_button.click()
+        recovery_phrase = " ".join(profile_view.get_recovery_phrase().values())
+        profile_view.back_button.click()
+        profile_view.back_button.click()
+        public_key = profile_view.get_public_key()
+        wallet_view = profile_view.wallet_button.click()
+        wallet_view.set_up_wallet()
+        address = wallet_view.get_wallet_address()
+        self.driver.reset()
+        sign_in_view.accept_agreements()
+        sign_in_view.recover_access(recovery_phrase)
+        wallet_view = sign_in_view.wallet_button.click()
+        wallet_view.set_up_wallet()
+        if wallet_view.get_wallet_address() != address:
+            self.driver.fail("Seed phrase displayed in new accounts for back up does not recover respective address")
+        profile_view = wallet_view.profile_button.click()
+        if profile_view.get_public_key() != public_key:
+            self.driver.fail("Seed phrase displayed in new accounts for back up does not recover respective public key")
 
     @marks.testrail_id(5433)
     @marks.medium
@@ -332,7 +360,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
         for text in basic_user['username'], 'Remove from contacts', 'Send message', 'Block this user':
             if not chat_view.element_by_text(text).scroll_to_element():
                 self.errors.append('%s is not visible' % text)
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5368)
     @marks.high
@@ -345,13 +373,13 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
             # TODO: should be edited after showing some text in setting when log in disabled
             if profile_view.log_level_setting.is_element_displayed():
                 self.errors.append('Log is not disabled')
-            if not profile_view.element_by_text('eth.beta').is_element_displayed():
-                self.errors.append('Fleet is not set to eth.beta')
+            if not profile_view.element_by_text('eth.staging').is_element_displayed():
+                self.errors.append('Fleet is not set to eth.staging')
         else:
-            for text in 'INFO', 'eth.beta':
+            for text in 'INFO', 'eth.staging':
                 if not profile_view.element_by_text(text).is_element_displayed():
                     self.errors.append('%s is not selected by default' % text)
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
 
     @marks.testrail_id(5468)
@@ -421,7 +449,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
         if not base_web_view.policy_summary.is_element_displayed():
             self.errors.append('{} Profile about view!'.format(no_link_open_error_msg))
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5738)
     @marks.high
@@ -453,7 +481,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
             dapp_view.allow_button.click(times_to_click=1)
         if not dapp_view.element_by_text_part('to your profile').is_element_displayed():
             self.errors.append('Profile permission is not asked')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5428)
     @marks.low
@@ -466,7 +494,7 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
         node_version = profile_view.node_version_text.text
         if not re.search("\d{1}[.]\d{1,2}[.]\d{1,2}\s[(]\d*[)]", app_version):
             self.errors.append("App version %s didn't match expected format" % app_version)
-        if not re.search("StatusIM\/android-\d{3}\/go\d{1}[.]\d{1,2}[.]\d{1,2}", node_version):
+        if not re.search("StatusIM\/v\d{1}[.]\d{1,2}[.]\d{1,2}-beta.\d\/android-\d{3}\/go\d{1}[.]\d{1,2}[.]\d{1,2}", node_version):
             self.errors.append("Node version %s didn't match expected format" % node_version)
         profile_view.app_version_text.click()
         profile_view.back_button.click()
@@ -476,7 +504,43 @@ class TestProfileSingleDevice(SingleDeviceTestCase):
         message_input.paste_text_from_clipboard()
         if message_input.text != app_version:
             self.errors.append('Version number was not copied to clipboard')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
+
+    @marks.testrail_id(5766)
+    @marks.medium
+    def test_use_pinned_mailserver(self):
+        sign_in_view = SignInView(self.driver)
+        home_view = sign_in_view.create_user()
+        profile_view = home_view.profile_button.click()
+
+        profile_view.just_fyi('pin mailserver')
+        profile_view.sync_settings_button.click()
+        # TODO: temporary to avoid issue 9269 - should be disabled after fix
+        mailserver = mailserver_staging_central_1 if profile_view.element_by_text(mailserver_staging_ams_1).is_element_present() else mailserver_staging_ams_1
+        profile_view.mail_server_button.click()
+        profile_view.mail_server_auto_selection_button.click()
+        profile_view.element_by_text(mailserver).click()
+        profile_view.confirm_button.click()
+
+        profile_view.just_fyi('check that mailserver is pinned')
+        profile_view.back_button.click()
+        if not profile_view.element_by_text(mailserver).is_element_displayed():
+            self.errors.append('"%s" mailserver is not pinned' % mailserver)
+        profile_view.get_back_to_home_view()
+
+        profile_view.just_fyi('relogin and check that settings are preserved')
+        home_view.relogin()
+        home_view.profile_button.click()
+        profile_view.sync_settings_button.click()
+        if not profile_view.element_by_text(mailserver).is_element_displayed():
+            self.errors.append('"%s" mailserver is not pinned' % mailserver)
+        profile_view.mail_server_button.click()
+        profile_view.mail_server_auto_selection_button.click()
+        profile_view.element_by_text(mailserver).click()
+        if profile_view.confirm_button.is_element_displayed():
+            self.errors.append('can select mailserver with "Autoselection" switched on')
+
+        self.errors.verify_no_errors()
 
 
 @marks.all
@@ -528,7 +592,7 @@ class TestProfileMultipleDevice(MultipleDeviceTestCase):
 
     @marks.testrail_id(5436)
     @marks.medium
-    def test_switch_mailserver(self):
+    def test_add_and_switch_to_custom_mailserver(self):
         self.create_drivers(2)
         sign_in_1, sign_in_2 = SignInView(self.drivers[0]), SignInView(self.drivers[1])
         home_1, home_2 = sign_in_1.create_user(), sign_in_2.create_user()
@@ -541,15 +605,21 @@ class TestProfileMultipleDevice(MultipleDeviceTestCase):
         profile_1.just_fyi('add custom mailserver and connect to it')
         profile_1.sync_settings_button.click()
         profile_1.mail_server_button.click()
+        # TODO: temporary pin mailserver to avoid issue 9269 - should be disabled after fix
+        mailserver = mailserver_staging_hk if profile_1.element_by_text(mailserver_staging_ams_1).is_element_present() else mailserver_staging_ams_1
+        profile_1.mail_server_auto_selection_button.click()
+        profile_1.element_by_text(mailserver).click()
+        profile_1.confirm_button.click()
+        profile_1.just_fyi('pin custom mailserver')
         profile_1.plus_button.click()
         server_name = 'test'
         profile_1.specify_name_input.set_value(server_name)
         profile_1.mail_server_address_input.set_value(mailserver_address)
         profile_1.save_button.click()
-        profile_1.mail_server_auto_selection_button.click()
         profile_1.mail_server_by_name(server_name).click()
         profile_1.mail_server_connect_button.click()
         profile_1.confirm_button.click()
+        profile_1.retry_to_connect_to_mailserver()
         profile_1.get_back_to_home_view()
         profile_1.home_button.click()
 
@@ -564,6 +634,65 @@ class TestProfileMultipleDevice(MultipleDeviceTestCase):
         chat_2.chat_message_input.send_keys(message_1)
         chat_2.send_message_button.click()
         chat_1.chat_element_by_text(message_1).wait_for_visibility_of_element()
+
+    @marks.testrail_id(5767)
+    @marks.medium
+    def test_can_not_connect_to_mailserver(self):
+        self.create_drivers(2)
+        sign_in_1, sign_in_2 = SignInView(self.drivers[0]), SignInView(self.drivers[1])
+        home_1, home_2 = sign_in_1.create_user(), sign_in_2.create_user()
+        profile_1 = home_1.profile_button.click()
+
+        profile_1.just_fyi('add non-working mailserver and connect to it')
+        profile_1.sync_settings_button.click()
+        profile_1.mail_server_button.click()
+        profile_1.plus_button.click()
+        server_name = 'test'
+        profile_1.specify_name_input.set_value(server_name)
+        profile_1.mail_server_address_input.set_value(mailserver_address.replace('4','5'))
+        profile_1.save_button.click()
+        profile_1.mail_server_auto_selection_button.click()
+        profile_1.mail_server_by_name(server_name).click()
+        profile_1.mail_server_connect_button.click()
+        profile_1.confirm_button.click()
+        profile_1.home_button.click()
+
+        if not profile_1.element_by_text_part('Error connecting').is_element_displayed(30):
+            sign_in_1.driver.fail("No popup with 'Error connecting' is shown")
+        profile_1.element_by_text('CANCEL').click()
+
+        home_2.just_fyi('send several messages to public channel')
+        public_chat_name = home_2.get_public_chat_name()
+        message = 'test_message'
+        public_chat_2 = home_2.join_public_chat(public_chat_name)
+        public_chat_2.chat_message_input.send_keys(message)
+        public_chat_2.send_message_button.click()
+        public_chat_2.back_button.click()
+
+        profile_1.just_fyi('join same public chat and try to reconnect via "Tap to reconnect" and check "Connecting"')
+        profile_1.home_button.click()
+        home_1.join_public_chat(public_chat_name)
+        public_chat_1 = home_1.get_chat_view()
+        chat_state = 'Could not connect to mailserver. Tap to reconnect'
+        public_chat_1.element_by_text(chat_state).click()
+        if not public_chat_1.element_by_text_part('Connecting').is_element_displayed():
+            self.errors.append("Indicator doesn't show 'Connecting'")
+
+        profile_1.just_fyi('check that can RETRY to connect')
+        for _ in range(2):
+            public_chat_1.element_by_text('RETRY').wait_for_element(30)
+            public_chat_1.element_by_text('RETRY').click()
+
+        profile_1.just_fyi('check that can pick another mailserver and receive messages')
+        public_chat_1.element_by_text('PICK ANOTHER').is_element_displayed(30)
+        public_chat_1.element_by_text_part('PICK ANOTHER').click()
+        profile_1.element_by_text(mailserver_staging_ams_1).click()
+        profile_1.confirm_button.click()
+        profile_1.home_button.click()
+        if not public_chat_1.chat_element_by_text(message).is_element_displayed(30):
+            self.errors.append("Chat history wasn't fetched")
+
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5762)
     @marks.high
@@ -625,7 +754,7 @@ class TestProfileMultipleDevice(MultipleDeviceTestCase):
         if not chat.chat_element_by_text(message_after_sync).is_element_displayed():
             self.errors.append('"%s" message in 1-1 is not synced' % message_after_sync)
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5680)
     @marks.high
@@ -707,7 +836,7 @@ class TestProfileMultipleDevice(MultipleDeviceTestCase):
         if not device_2_profile.profile_picture.is_element_image_equals_template('sauce_logo_red_profile.png'):
             self.errors.append('Profile picture was not updated after changing when devices are paired')
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(6226)
     @marks.critical
@@ -755,4 +884,4 @@ class TestProfileMultipleDevice(MultipleDeviceTestCase):
         if chat_2.chat_element_by_text(message_text_2).username.text.lower() != '@' + user_1['ens']:
             self.errors.append('ENS username is not shown in public chat')
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()

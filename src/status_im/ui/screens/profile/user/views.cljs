@@ -24,7 +24,8 @@
             [status-im.utils.identicon :as identicon]
             [status-im.utils.platform :as platform]
             [status-im.utils.config :as config]
-            [status-im.utils.universal-links.core :as universal-links])
+            [status-im.utils.universal-links.core :as universal-links]
+            [status-im.ui.components.animation :as animation])
   (:require-macros [status-im.utils.views :as views]))
 
 (views/defview share-chat-key []
@@ -70,11 +71,11 @@
                                         ;:icon                :main-icons/link
           :accessibility-label :share-my-contact-code-button}]]])))
 
-(defn- header [{:keys [photo-path] :as account}]
+(defn- header [{:keys [photo-path] :as account} photo-added?]
   [profile.components/profile-header
    {:contact                account
     :allow-icon-change?     true
-    :include-remove-action? (seq photo-path)}])
+    :include-remove-action?  photo-added?}])
 
 (defn- header-in-toolbar [account]
   (let [displayed-name (multiaccounts/displayed-name account)]
@@ -110,7 +111,7 @@
 (defn- flat-list-content
   [preferred-name registrar tribute-to-talk
    active-contacts-count show-backup-seed?
-   keycard-account?]
+   keycard-account? notifications-enabled?]
   [(cond-> {:title                (or (when registrar preferred-name)
                                       :t/ens-usernames)
             :subtitle             (if registrar
@@ -150,14 +151,23 @@
     [(when show-backup-seed?
        [components.common/counter {:size 22} 1]) :chevron]
     :on-press            #(re-frame/dispatch [:navigate-to :privacy-and-security])}
-   {:icon                :main-icons/notification
-    :title               :t/notifications
-    :accessibility-label :notifications-button
-    ;; TODO commented out for now, uncomment when notifications-settings view
-    ;; is populated. Then remove :on-press below
-    ;; :on-press            #(re-frame/dispatch [:navigate-to :notifications-settings])
-    :on-press            #(.openURL react/linking "app-settings://notification/status-im")
-    :accessories         [:chevron]}
+   (when (and platform/android?
+              config/local-notifications?)
+     {:icon                :main-icons/notification
+      :title               :t/notifications
+      :accessibility-label :notifications-button
+      :on-press
+      #(re-frame/dispatch
+        [:multiaccounts.ui/notifications-switched (not notifications-enabled?)])
+      :accessories
+      [[react/switch
+        {:track-color #js {:true colors/blue :false nil}
+         :value       notifications-enabled?
+         :on-value-change
+         #(re-frame/dispatch
+           [:multiaccounts.ui/notifications-switched
+            (not notifications-enabled?)])
+         :disabled    false}]]})
    {:icon                :main-icons/mobile
     :title               :t/sync-settings
     :accessibility-label :sync-settings-button
@@ -195,45 +205,50 @@
     :on-press
     #(re-frame/dispatch [:multiaccounts.logout.ui/logout-pressed])}])
 
-(views/defview my-profile []
-  (views/letsubs [list-ref                     (reagent/atom nil)
-                  {:keys [public-key
-                          preferred-name
-                          seed-backed-up?
-                          mnemonic
-                          keycard-key-uid
-                          address]
-                   :as   multiaccount}         [:multiaccount]
-                  active-contacts-count        [:contacts/active-count]
-                  tribute-to-talk              [:tribute-to-talk/profile]
-                  registrar                    [:ens.stateofus/registrar]]
-    (let [show-backup-seed? (and (not seed-backed-up?)
-                                 (not (string/blank? mnemonic)))
+(defn minimized-toolbar-handler [anim-opacity]
+  (let [{:keys [public-key]
+         :as   multiaccount}         @(re-frame/subscribe [:multiaccount])]
+    [large-toolbar/minimized-toolbar-handler
+     (header-in-toolbar multiaccount)
+     nil
+     (toolbar-action-items public-key)
+     anim-opacity]))
 
-          ;; toolbar-contents
-          header-in-toolbar    (header-in-toolbar multiaccount)
-          toolbar-action-items (toolbar-action-items public-key)
+(defn content-with-header [list-ref scroll-y]
+  (let [{:keys [public-key
+                preferred-name
+                seed-backed-up?
+                mnemonic
+                keycard-key-uid
+                address
+                notifications-enabled?]
+         :as   multiaccount}         @(re-frame/subscribe [:multiaccount])
+        active-contacts-count        @(re-frame/subscribe [:contacts/active-count])
+        tribute-to-talk              @(re-frame/subscribe [:tribute-to-talk/profile])
+        registrar                    @(re-frame/subscribe [:ens.stateofus/registrar])
+        photo-added?                 @(re-frame/subscribe [:profile/photo-added?])
+        show-backup-seed? (and (not seed-backed-up?)
+                               (not (string/blank? mnemonic)))]
+    [large-toolbar/flat-list-with-header-handler
+     (header multiaccount photo-added?)
+     (flat-list-content
+      preferred-name registrar tribute-to-talk
+      active-contacts-count show-backup-seed?
+      keycard-key-uid notifications-enabled?)
+     list-ref
+     scroll-y]))
 
-          ;; flatlist contents
-          header               (header multiaccount)
-          content           (flat-list-content
-                             preferred-name registrar tribute-to-talk
-                             active-contacts-count show-backup-seed?
-                             keycard-key-uid)
-
-          ;; generated toolbar and content with header
-          generated-view (large-toolbar/generate-view
-                          header-in-toolbar
-                          nil
-                          toolbar-action-items
-                          header
-                          content
-                          list-ref)]
+(defn my-profile []
+  (let [list-ref (reagent/atom nil)
+        anim-opacity (animation/create-value 0)
+        scroll-y (animation/create-value 0)]
+    (large-toolbar/add-listener anim-opacity scroll-y)
+    (fn []
       [react/safe-area-view
        {:style
         (merge {:flex 1}
                (when platform/ios?
                  {:margin-bottom tabs.styles/tabs-diff}))}
        [status-bar/status-bar {:type :main}]
-       (:minimized-toolbar generated-view)
-       (:content-with-header generated-view)])))
+       [minimized-toolbar-handler anim-opacity]
+       [content-with-header list-ref scroll-y]])))
