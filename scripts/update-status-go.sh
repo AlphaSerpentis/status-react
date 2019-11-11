@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+if [[ -z "${IN_NIX_SHELL}" ]]; then
+    echo "Remember to call 'make shell'!"
+    exit 1
+fi
+
 set -eof pipefail
 
 GIT_ROOT=$(cd "${BASH_SOURCE%/*}" && git rev-parse --show-toplevel)
@@ -32,7 +37,9 @@ STATUS_GO_COMMIT_SHA1=$(git ls-remote ${repoUrl} U ${STATUS_GO_VERSION} | cut -f
 
 if [[ -z "${STATUS_GO_COMMIT_SHA1}" ]]; then
     echo "Could not find SHA1 for rev ${STATUS_GO_VERSION}, assuming it's a commit."
+    echo "WARNING: Setting 'version' value to 'develop'"
     STATUS_GO_COMMIT_SHA1="${STATUS_GO_VERSION}"
+    STATUS_GO_VERSION="develop" # to reduce metrics cardinality in Prometheus
 fi
 
 STATUS_GO_SHA256=$(nix-prefetch-url --unpack ${repoUrl}/archive/${STATUS_GO_VERSION}.zip)

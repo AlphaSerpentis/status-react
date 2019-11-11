@@ -11,6 +11,7 @@
             [status-im.fleet.core :as fleet]
             [status-im.i18n :as i18n]
             [status-im.native-module.core :as status]
+            [status-im.node.core :as node]
             [status-im.notifications.core :as notifications]
             [status-im.protocol.core :as protocol]
             [status-im.stickers.core :as stickers]
@@ -28,15 +29,17 @@
             [status-im.wallet.core :as wallet]
             [taoensso.timbre :as log]
             [status-im.ui.screens.db :refer [app-db]]
-            [status-im.multiaccounts.biometric.core :as biometric]))
+            [status-im.multiaccounts.biometric.core :as biometric]
+            [status-im.utils.identicon :as identicon]
+            [status-im.ethereum.eip55 :as eip55]))
 
 (def rpc-endpoint "https://goerli.infura.io/v3/f315575765b14720b32382a61a89341a")
 (def contract-address "0xfbf4c8e2B41fAfF8c616a0E49Fb4365a5355Ffaf")
 (def contract-fleet? #{:eth.contract})
 
 (defn fetch-nodes [current-fleet resolve reject]
-  (let [default-nodes (-> (fleet/fleets {})
-                          (get-in [:eth.beta :mail])
+  (let [default-nodes (-> (node/fleets {})
+                          (get-in [:eth.staging :mail])
                           vals)]
     (if config/contract-nodes-enabled?
       (do
@@ -46,7 +49,7 @@
          contract-address
          (handlers/response-handler resolve
                                     (fn [error]
-                                      (log/warn "could not fetch nodes from contract defaulting to eth.beta")
+                                      (log/warn "could not fetch nodes from contract defaulting to eth.staging")
                                       (resolve default-nodes)))))
       (resolve default-nodes))))
 
@@ -66,7 +69,10 @@
   {:events [:multiaccounts.login.ui/password-input-submitted]}
   [{:keys [db] :as cofx}]
   (let [{:keys [address password name photo-path]} (:multiaccounts/login db)]
-    {:db (assoc-in db [:multiaccounts/login :processing] true)
+    {:db (-> db
+             (assoc-in [:multiaccounts/login :processing] true)
+             (dissoc :intro-wizard)
+             (update :hardwallet dissoc :flow))
      ::login [(types/clj->json {:name name :address address :photo-path photo-path})
               (ethereum/sha3 (security/safe-unmask-data password))]}))
 
@@ -117,11 +123,12 @@
        (when (not= network-id fetched-network-id)
          ;;TODO: this shouldn't happen but in case it does
          ;;we probably want a better error message
-         (utils/show-popup (i18n/label :t/ethereum-node-started-incorrectly-title)
-                           (i18n/label :t/ethereum-node-started-incorrectly-description
-                                       {:network-id         network-id
-                                        :fetched-network-id fetched-network-id})
-                           #(re-frame/dispatch [::close-app-confirmed]))))}]})
+         (utils/show-popup
+          (i18n/label :t/ethereum-node-started-incorrectly-title)
+          (i18n/label :t/ethereum-node-started-incorrectly-description
+                      {:network-id         network-id
+                       :fetched-network-id fetched-network-id})
+          #(re-frame/dispatch [::close-app-confirmed]))))}]})
 
 (defn deserialize-config
   [{:keys [multiaccount current-network networks]}]
@@ -129,17 +136,28 @@
    current-network
    (types/deserialize networks)])
 
+(defn convert-multiaccount-addresses
+  [multiaccount]
+  (let [update-address #(update % :address eip55/address->checksum)]
+    (-> multiaccount
+        update-address
+        (update :accounts (partial mapv update-address)))))
+
 (fx/defn get-config-callback
   {:events [::get-config-callback]}
-  [{:keys [db] :as cofx} config stored-pns]
-  (let [[{:keys [address] :as multiaccount} current-network networks] (deserialize-config config)
+  [{:keys [db] :as cofx} config]
+  (let [[{:keys [address notifications-enabled?] :as multiaccount}
+         current-network networks] (deserialize-config config)
         network-id (str (get-in networks [current-network :config :NetworkId]))]
     (fx/merge cofx
-              {:db (assoc db
-                          :networks/current-network current-network
-                          :networks/networks networks
-                          :multiaccount multiaccount)
-               :notifications/request-notifications-permissions nil}
+              (cond-> {:db (assoc db
+                                  :networks/current-network current-network
+                                  :networks/networks networks
+                                  :multiaccount (convert-multiaccount-addresses
+                                                 multiaccount))}
+                (and platform/android?
+                     notifications-enabled?)
+                (assoc ::notifications/enable nil))
               ;; NOTE: initializing mailserver depends on user mailserver
               ;; preference which is why we wait for config callback
               (protocol/initialize-protocol {:default-mailserver true})
@@ -151,18 +169,21 @@
               (mobile-network/on-network-status-change)
               (chaos-mode/check-chaos-mode)
               (when-not platform/desktop?
-                (initialize-wallet))
-              (when stored-pns
-                (notifications/process-stored-event address stored-pns)))))
+                (initialize-wallet)))))
 
 (fx/defn login-only-events
   [{:keys [db] :as cofx} address password save-password?]
-  (let [stored-pns      (:push-notifications/stored db)
-        auth-method     (:auth-method db)
+  (let [auth-method     (:auth-method db)
         new-auth-method (if save-password?
-                          (when-not (or (= "biometric" auth-method) (= "password" auth-method))
-                            (if (= auth-method "biometric-prepare") "biometric" "password"))
-                          (when (and auth-method (not= auth-method "none")) "none"))]
+                          (when-not (or (= "biometric" auth-method)
+                                        (= "password" auth-method))
+                            (if (= auth-method "biometric-prepare")
+                              "biometric"
+                              "password"))
+                          (when (and auth-method
+                                     (not= auth-method
+                                           "none"))
+                            "none"))]
     (fx/merge cofx
               {:db (assoc db :chats/loading? true)
                ::json-rpc/call
@@ -178,7 +199,7 @@
                  :on-success #(re-frame/dispatch [::protocol/initialize-protocol {:mailservers (or % [])}])}
                 {:method     "settings_getConfigs"
                  :params     [["multiaccount" "current-network" "networks"]]
-                 :on-success #(re-frame/dispatch [::get-config-callback % stored-pns])}]}
+                 :on-success #(re-frame/dispatch [::get-config-callback %])}]}
               (when save-password?
                 (keychain/save-user-password address password))
               (when new-auth-method
@@ -243,8 +264,7 @@
                                :multiaccount))
                ::json-rpc/call
                [{:method "web3_clientVersion"
-                 :on-success #(re-frame/dispatch [::initialize-web3-client-version %])}]
-               :notifications/get-fcm-token nil}
+                 :on-success #(re-frame/dispatch [::initialize-web3-client-version %])}]}
               ;;FIXME
               (when nodes
                 (fleet/set-nodes :eth.contract nodes))
@@ -276,6 +296,7 @@
                                :address address
                                :photo-path photo-path
                                :name name)
+                       (assoc :profile/photo-added? (= (identicon/identicon public-key) photo-path))
                        (update :multiaccounts/login dissoc
                                :error
                                :password))}

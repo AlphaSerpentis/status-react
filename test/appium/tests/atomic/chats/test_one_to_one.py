@@ -61,7 +61,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
 
         home_1.connection_status.wait_for_invisibility_of_element(30)
         chat_element = home_1.get_chat_with_user(username_2)
-        chat_element.wait_for_visibility_of_element(20)
+        chat_element.wait_for_visibility_of_element(30)
         chat_1 = chat_element.click()
         chat_1.chat_element_by_text(message_1).wait_for_visibility_of_element(2)
 
@@ -72,7 +72,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         chat_2.connection_status.wait_for_invisibility_of_element(60)
         message_2 = 'one more message'
         chat_2.chat_message_input.send_keys(message_2)
-        chat_2.send_message_button.click()
+        chat_2.send_message_button.click_until_absense_of_element(chat_2.send_message_button)
 
         home_1.toggle_airplane_mode()  # turning on WiFi connection on primary device
 
@@ -146,7 +146,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         device_2_chat.view_profile_button.click()
         if not device_2_chat.contact_profile_picture.is_element_image_equals_template('sauce_logo.png'):
             self.errors.append("Updated profile picture is not shown in one-to-one chat")
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5316)
     @marks.critical
@@ -191,7 +191,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         device_1_chat.view_profile_button.click()
         if not device_1_chat.contact_profile_picture.is_element_image_equals_template(file_name):
             self.errors.append("Updated profile picture is not shown in one-to-one chat")
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5373)
     @marks.high
@@ -233,7 +233,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
             web_view.find_full_text('Private, Secure Communication')
         except TimeoutException:
             self.errors.append('Device 1: URL was not opened from 1-1 chat')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5326)
     @marks.critical
@@ -245,6 +245,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         home_view.airplane_mode_button.click()
 
         chat = home_view.add_contact(transaction_senders['C']['public_key'])
+        chat.element_by_text('Offline').wait_for_visibility_of_element(15)
         if chat.connection_status.text != 'Offline':
             self.errors.append('Offline status is not shown in 1-1 chat')
         chat.get_back_to_home_view()
@@ -255,7 +256,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         public_chat = home_view.join_public_chat(home_view.get_public_chat_name())
         if public_chat.connection_status.text != 'Offline':
             self.errors.append('Offline status is not shown in a public chat')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5374)
     @marks.high
@@ -269,7 +270,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         chat_view.send_message_button.click()
         if chat_view.chat_element_by_text(message).status.text != 'Sent':
             self.errors.append("'Sent' status is not shown under the sent text message")
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5362)
     @marks.critical
@@ -304,7 +305,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
 
         if chat_element.new_messages_counter.is_element_displayed():
             self.errors.append('New messages counter is shown on chat element for already seen message')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5425)
     @marks.medium
@@ -365,7 +366,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         if not device_1_chat.chat_element_by_text(italic_text_expected).is_element_displayed():
             self.errors.append('Italic text is not displayed in 1-1 chat for the recipient')
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.skip
     @marks.testrail_id(5385)
@@ -415,7 +416,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         if not device_1_chat.chat_element_by_text(message).member_photo.is_element_displayed():
             self.errors.append('Member photo is not displayed in 1-1 chat for the recipient')
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5405)
     @marks.high
@@ -483,7 +484,7 @@ class TestMessagesOneToOneChatMultiple(MultipleDeviceTestCase):
         # if not received_message.is_element_displayed() and not sent_message.contains_text(device2['currency']):
         #     self.errors.append('Wrong currency fiat value while receiving ETH sent via wallet.')
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
 
 @marks.all
@@ -521,7 +522,7 @@ class TestMessagesOneToOneChatSingle(SingleDeviceTestCase):
         message_input.paste_text_from_clipboard()
         if message_input.text != message_text:
             self.errors.append('Message text was not copied in 1-1 chat')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5322)
     @marks.medium
@@ -570,7 +571,7 @@ class TestMessagesOneToOneChatSingle(SingleDeviceTestCase):
 
         if not chat.chat_element_by_text(emoji_unicode).is_element_displayed():
             self.errors.append('Message with emoji was not sent in 1-1 chat')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5393)
     @marks.high
@@ -661,7 +662,7 @@ class TestMessagesOneToOneChatSingle(SingleDeviceTestCase):
         # if not request_message.is_element_displayed() and not request_message.contains_text(user_currency):
         #     self.errors.append('Wrong fiat value while requesting assets from wallet with user selected currency.')
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5782)
     @marks.critical
@@ -695,7 +696,7 @@ class TestMessagesOneToOneChatSingle(SingleDeviceTestCase):
         chat.swipe_right()
         if not chat.sticker_icon.is_element_displayed():
             self.errors.append('Sticker is not shown in recently used list')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5783)
     @marks.critical

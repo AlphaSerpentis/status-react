@@ -64,7 +64,7 @@ class TestChatManagement(SingleDeviceTestCase):
         home.join_public_chat(chat_name)
         if chat.chat_element_by_text(message).is_element_displayed():
             self.errors.append('Chat history is shown')
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5304)
     @marks.high
@@ -105,7 +105,7 @@ class TestChatManagement(SingleDeviceTestCase):
         home.relogin()
         if home.get_chat_with_user(basic_user['username']).is_element_present(10):
             self.errors.append("One-to-one' chat is shown after re-login, but the chat has been deleted")
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5388)
     @marks.high
@@ -122,7 +122,7 @@ class TestChatManagement(SingleDeviceTestCase):
         home.relogin()
         if home.element_by_text(chat_name).is_element_present(5):
             self.errors.append("Public chat '%s' is shown after re-login, but the chat has been deleted" % chat_name)
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5464)
     @marks.medium
@@ -178,7 +178,7 @@ class TestChatManagement(SingleDeviceTestCase):
                     self.errors.append("'%s' is shown on the home screen after searching by '%s' keyword" %
                                        (element.text, keyword))
             home.search_chat_input.clear()
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(6221)
     @marks.medium
@@ -190,6 +190,26 @@ class TestChatManagement(SingleDeviceTestCase):
         home.element_by_text('Status PR').click()
         if not home.plus_button.is_element_displayed():
             self.driver.fail('Chats view was not opened')
+
+    @marks.testrail_id(6213)
+    @marks.medium
+    def test_unblocked_user_is_not_added_in_contacts(self):
+        sign_in = SignInView(self.driver)
+        home = sign_in.create_user()
+        chat_view = home.add_contact(basic_user["public_key"], add_in_contacts=False)
+        chat_view.chat_options.click()
+        chat_view.view_profile_button.click()
+        chat_view.block_contact()
+        profile = sign_in.profile_button.click()
+        profile.contacts_button.click()
+        profile.blocked_users_button.click()
+        profile.element_by_text(basic_user["username"]).click()
+        chat_view.unblock_contact_button.click()
+        chat_view.back_button.click()
+        home.plus_button.click()
+        home.start_new_chat_button.click()
+        if home.element_by_text(basic_user["username"]).is_element_displayed():
+            self.driver.fail("Unblocked user not added previously in contact list added in contacts!")
 
 
 @marks.chat
@@ -232,7 +252,7 @@ class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
         if not contacts_1.element_by_text(username).is_element_displayed():
             self.errors.append("List of contacts doesn't contain added user")
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()
 
     @marks.testrail_id(5786)
     @marks.critical
@@ -257,8 +277,7 @@ class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
         chat_element = chat_public_1.chat_element_by_text(message_before_block_2)
         chat_element.find_element()
         chat_element.member_photo.click()
-        chat_public_1.profile_block_contact.click()
-        chat_public_1.block_button.click()
+        chat_public_1.block_contact()
 
         device_1.just_fyi('messages from blocked user are hidden in public chat and close app')
         if chat_public_1.chat_element_by_text(message_before_block_2).is_element_displayed():
@@ -323,8 +342,7 @@ class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
         device_1.just_fyi('block user')
         chat_1.chat_options.click()
         chat_1.view_profile_button.click()
-        chat_1.profile_block_contact.click()
-        chat_1.block_button.click()
+        chat_1.block_contact()
 
         device_1.just_fyi('no 1-1, messages from blocked user are hidden in public chat')
         if home_1.get_chat_with_user(basic_user['username']).is_element_displayed():
@@ -378,4 +396,4 @@ class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
                 "Message from blocked user '%s' is received after fetching new messages from offline"
                 % device_2.driver.number)
 
-        self.verify_no_errors()
+        self.errors.verify_no_errors()

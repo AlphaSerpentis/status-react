@@ -10,10 +10,9 @@
   (testing "message to rpc"
     (let [message  {:message-id message-id
                     :content {:chat-id chat-id
-                              :response-to-v2 "id-2"
+                              :response-to "id-2"
                               :text "hta"}
                     :whisper-timestamp 1
-                    :js-obj {}
                     :dedup-id "ATIwMTkwODE0YTdkNWZhZGY1N2E0ZDU3MzUxZmJkNDZkZGM1ZTU4ZjRlYzUyYWYyMDA5NTc2NWYyYmIxOTQ2OTM3NGUwNjdiMvEpTIGEjHOTAyqsrN39wST4npnSAv1AR8jJWeubanjkoGIyJooD5RVRnx6ZMt+/JzBOD2hoZzlHQWA0bC6XbdU="
                     :outgoing-status :sending
                     :message-type :public-group-user-message
@@ -27,7 +26,7 @@
                     :from from
                     :chatId chat-id
                     :replyTo "id-2"
-                    :content "{:chat-id \"chat-id\", :response-to-v2 \"id-2\", :text \"hta\"}"
+                    :content "{\"chat-id\":\"chat-id\",\"response-to\":\"id-2\",\"text\":\"hta\"}"
                     :contentType "text/plain"
                     :messageType "public-group-user-message"
                     :clockValue 2

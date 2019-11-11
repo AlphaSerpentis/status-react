@@ -6,24 +6,8 @@
             [taoensso.timbre :as log]
             [status-im.utils.types :as types]))
 
-(defn deserialize-device-info [contact]
-  (update contact :deviceInfo (fn [device-info]
-                                (reduce (fn [acc info]
-                                          (assoc acc
-                                                 (:installationId info)
-                                                 (clojure.set/rename-keys info {:fcmToken :fcm-token :installationId :id})))
-                                        {}
-                                        device-info))))
-
-(defn serialize-device-info [contact]
-  (update contact :device-info (fn [device-info]
-                                 (map
-                                  #(clojure.set/rename-keys % {:fcm-token :fcmToken :id :installationId})
-                                  (vals device-info)))))
-
 (defn <-rpc [contact]
   (-> contact
-      deserialize-device-info
       (update :tributeToTalk types/deserialize)
       (update :systemTags
               #(reduce (fn [acc s]
@@ -31,19 +15,16 @@
                        #{}
                        %)) (clojure.set/rename-keys {:id :public-key
                                                      :photoPath :photo-path
-                                                     :deviceInfo :device-info
                                                      :tributeToTalk :tribute-to-talk
                                                      :systemTags :system-tags
                                                      :lastUpdated :last-updated})))
 
 (defn ->rpc [contact]
   (-> contact
-      serialize-device-info
       (update :tribute-to-talk types/serialize)
       (update :system-tags #(mapv str %))
       (clojure.set/rename-keys {:public-key :id
                                 :photo-path :photoPath
-                                :device-info :deviceInfo
                                 :tribute-to-talk :tributeToTalk
                                 :system-tags :systemTags
                                 :last-updated :lastUpdated})))
