@@ -108,7 +108,7 @@ class TestWalletManagement(SingleDeviceTestCase):
         self.errors.verify_no_errors()
 
     @marks.testrail_id(5358)
-    @marks.medium
+    @marks.critical
     def test_backup_recovery_phrase_warning_from_wallet(self):
         sign_in = SignInView(self.driver)
         sign_in.create_user()

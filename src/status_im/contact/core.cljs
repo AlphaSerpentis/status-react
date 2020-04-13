@@ -116,9 +116,8 @@
                 {:db (dissoc db :contacts/new-identity)}
                 (upsert-contact contact)))))
 
-(fx/defn handle-contact-update
-  [{{:contacts/keys [contacts] :as db} :db :as cofx}
-   public-key
+(defn handle-contact-update
+  [public-key
    timestamp
    {:keys [name profile-image address] :as m}]
   ;; We need to convert to timestamp ms as before we were using now in ms to
@@ -146,6 +145,10 @@
                                          :contact/request-received)}
               address (assoc :address address))]
         (upsert-contact cofx contact-props)))))
+
+(def receive-contact-request handle-contact-update)
+(def receive-contact-request-confirmation handle-contact-update)
+(def receive-contact-update handle-contact-update)
 
 (fx/defn initialize-contacts [cofx]
   (contacts-store/fetch-contacts-rpc cofx #(re-frame/dispatch [::contacts-loaded %])))

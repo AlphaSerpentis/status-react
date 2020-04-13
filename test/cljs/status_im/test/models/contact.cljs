@@ -1,8 +1,6 @@
 (ns status-im.test.models.contact
   (:require [cljs.test :refer-macros [deftest is testing]]
             [status-im.ethereum.json-rpc :as json-rpc]
-            [status-im.utils.gfycat.core :as gfycat]
-            [status-im.utils.identicon :as identicon]
             [status-im.contact.core :as model]))
 
 (def public-key "0x04fcf40c526b09ff9fb22f4a5dbd08490ef9b64af700870f8a0ba2133f4251d5607ed83cd9047b8c2796576bc83fa0de23a13a4dced07654b8ff137fe744047917")
@@ -11,7 +9,6 @@
   (with-redefs [json-rpc/call (constantly nil)]
     (testing "the contact is not in contacts"
       (let [actual (model/handle-contact-update
-                    {:db {}}
                     public-key
                     1
                     {:name "name"
@@ -27,6 +24,16 @@
     (testing "the contact is already in contacts"
       (testing "timestamp is greater than last-updated"
         (let [actual (model/handle-contact-update
+                      public-key
+                      1
+                      {:name "new-name"
+                       :profile-image "new-image"
+                       :device-info [{:id "2"
+                                      :fcm-token "token-2"}
+                                     {:id "3"
+                                      :fcm-token "token-3"}]
+                       :address "new-address"
+                       :fcm-token "new-token"}
                       {:db {:contacts/contacts
                             {public-key {:public-key       public-key
                                          :photo-path       "old-image"
@@ -48,6 +55,12 @@
                     contact)))))
       (testing "timestamp is equal to last-updated"
         (let [actual (model/handle-contact-update
+                      public-key
+                      1
+                      {:name "new-name"
+                       :profile-image "new-image"
+                       :address "new-address"
+                       :fcm-token "new-token"}
                       {:db {:contacts/contacts
                             {public-key {:public-key       public-key
                                          :photo-path       "old-image"
@@ -63,6 +76,12 @@
             (is (nil? actual)))))
       (testing "timestamp is less than last-updated"
         (let [actual (model/handle-contact-update
+                      public-key
+                      0
+                      {:name "new-name"
+                       :profile-image "new-image"
+                       :address "new-address"
+                       :fcm-token "new-token"}
                       {:db {:contacts/contacts
                             {public-key {:public-key       public-key
                                          :photo-path       "old-image"
@@ -78,17 +97,17 @@
             (is (nil? actual))))))
     (testing "backward compatibility"
       (let [actual (model/handle-contact-update
+                    public-key
+                    1
+                    {:name "new-name"
+                     :profile-image "new-image"}
                     {:db {:contacts/contacts
                           {public-key {:public-key       public-key
                                        :photo-path       "old-image"
 
                                        :name             "old-name"
                                        :last-updated     0
-                                       :system-tags      #{:contact/added}}}}}
-                    public-key
-                    1
-                    {:name "new-name"
-                     :profile-image "new-image"})
+                                       :system-tags      #{:contact/added}}}}})
             contact (get-in actual [:db :contacts/contacts public-key])]
         (testing "it updates the contact"
           (is (=  {:public-key       public-key

@@ -111,7 +111,7 @@
                            :single-line-input?     single-line-input?}])]]))
 
 (defview reply-message [from alias message-text]
-  (letsubs [{:keys [ens-name]} [:contacts/contact-name-by-identity from]
+  (letsubs [{:keys [username]} [:contacts/contact-name-by-identity from]
             current-public-key [:multiaccount/public-key]]
     [react/scroll-view {:style style/reply-message-content}
      [react/view {:style style/reply-message-to-container}

@@ -307,4 +307,3 @@ class SendTransactionView(BaseView):
 
     def get_account_in_select_account_bottom_sheet_button(self, account_name):
         return AccountNameInSelectAccountBottomSheet(self.driver, account_name)
-

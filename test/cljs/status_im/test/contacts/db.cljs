@@ -34,7 +34,6 @@
                                                           current-multiaccount)
                [{:name             "generated"
                  :identicon        "generated"
-                 :alias            "generated"
                  :admin?           true
                  :public-key       "0x04fcf40c526b09ff9fb22f4a5dbd08490ef9b64af700870f8a0ba2133f4251d5607ed83cd9047b8c2796576bc83fa0de23a13a4dced07654b8ff137fe744047917"
                  :system-tags      #{}}

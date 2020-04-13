@@ -16,7 +16,6 @@
             [status-im.ethereum.stateofus :as stateofus]
             [status-im.ui.screens.navigation :as navigation]
             [status-im.utils.fx :as fx]
-            [status-im.ethereum.json-rpc :as json-rpc]
             [status-im.utils.money :as money]
             [status-im.signing.core :as signing]
             [status-im.multiaccounts.update.core :as multiaccounts.update]
