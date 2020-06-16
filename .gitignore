@@ -86,6 +86,9 @@ figwheel_server.log
 .lein-failures
 .lein-repl-history
 
+# Shadow
+.shadow-cljs
+
 ## Doo
 #
 out
@@ -100,6 +103,7 @@ Statusgo.framework
 #ios
 /ios/Pods/
 /ios/StatusIm.xcworkspace
+/ios/react-native-xcode.log
 .ruby-version
 status-e2e/
 
@@ -125,6 +129,7 @@ fastlane/README.md
 .dir-locals.el
 
 #ignore platform-specific files in the root since they are only symlinks to files in folders 'desktop/js_files' and 'mobile/js_files'
+/DEPENDENCIES.md
 /package-lock.json
 /package.json
 /metro.config.js
@@ -185,3 +190,6 @@ status-modules/resources
 /fiddle/resources/public/images/
 
 trace.edn
+
+/app/
+project.clj

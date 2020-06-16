@@ -4,13 +4,13 @@
             [re-frame.core :as re-frame]
             [status-im.chat.constants :as chat.constants]
             [status-im.chat.models :as chat]
-            [status-im.chat.models.message-content :as message-content]
             [status-im.chat.models.message :as chat.message]
+            [status-im.chat.models.message-content :as message-content]
             [status-im.constants :as constants]
-            [status-im.js-dependencies :as dependencies]
             [status-im.utils.datetime :as datetime]
             [status-im.utils.fx :as fx]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log]
+            ["emojilib" :as emojis]))
 
 (defn text->emoji
   "Replaces emojis in a specified `text`"
@@ -19,15 +19,15 @@
     (string/replace text
                     #":([a-z_\-+0-9]*):"
                     (fn [[original emoji-id]]
-                      (if-let [emoji-map (object/get (object/get dependencies/emojis "lib") emoji-id)]
-                        (object/get emoji-map "char")
+                      (if-let [emoji-map (object/get (.-lib emojis) emoji-id)]
+                        (.-char ^js emoji-map)
                         original)))))
 
 (fx/defn set-chat-input-text
   "Set input text for current-chat. Takes db and input text and cofx
   as arguments and returns new fx. Always clear all validation messages."
   [{{:keys [current-chat-id] :as db} :db} new-input]
-  {:db (assoc-in db [:chats current-chat-id :input-text] (text->emoji new-input))})
+  {:db (assoc-in db [:chat/inputs current-chat-id :input-text] (text->emoji new-input))})
 
 (defn- start-cooldown [{:keys [db]} cooldowns]
   {:dispatch-later        [{:dispatch [:chat/disable-cooldown]
@@ -67,13 +67,22 @@
   (when-let [cmp-ref (get-in chat-ui-props [current-chat-id ref])]
     {::focus-rn-component cmp-ref}))
 
+(fx/defn chat-input-clear
+  "Returns fx for focusing on active chat input reference"
+  [{{:keys [current-chat-id chat-ui-props]} :db} ref]
+  (when-let [cmp-ref (get-in chat-ui-props [current-chat-id ref])]
+    {::clear-rn-component cmp-ref}))
+
 (fx/defn reply-to-message
   "Sets reference to previous chat message and focuses on input"
-  [{:keys [db] :as cofx} message-id]
+  [{:keys [db] :as cofx} message]
   (let [current-chat-id (:current-chat-id db)]
     (fx/merge cofx
-              {:db (assoc-in db [:chats current-chat-id :metadata :responding-to-message]
-                             {:message-id     message-id})}
+              {:db (-> db
+                       (assoc-in [:chats current-chat-id :metadata :responding-to-message]
+                                 message)
+                       (update-in [:chats current-chat-id :metadata]
+                                  dissoc :sending-image))}
               (chat-input-focus :input-ref))))
 
 (fx/defn cancel-message-reply
@@ -84,9 +93,9 @@
               {:db (assoc-in db [:chats current-chat-id :metadata :responding-to-message] nil)}
               (chat-input-focus :input-ref))))
 
-(defn plain-text-message-fx
+(fx/defn send-plain-text-message
   "when not empty, proceed by sending text message"
-  [input-text current-chat-id {:keys [db] :as cofx}]
+  [{:keys [db] :as cofx} input-text current-chat-id]
   (when-not (string/blank? input-text)
     (let [{:keys [message-id]}
           (get-in db [:chats current-chat-id :metadata :responding-to-message])
@@ -103,10 +112,22 @@
                                             :response-to message-id
                                             :ens-name preferred-name})
                 (set-chat-input-text nil)
+                (chat-input-clear :input-ref)
                 (process-cooldown)))))
 
-(fx/defn send-sticker-fx
-  [{:keys [db] :as cofx} {:keys [hash pack]} current-chat-id]
+(fx/defn send-image
+  [{{:keys [current-chat-id] :as db} :db :as cofx}]
+  (let [image-path (get-in db [:chats current-chat-id :metadata :sending-image :uri])]
+    (fx/merge cofx
+              {:db (update-in db [:chats current-chat-id :metadata] dissoc :sending-image)}
+              (when-not (string/blank? image-path)
+                (chat.message/send-message {:chat-id      current-chat-id
+                                            :content-type constants/content-type-image
+                                            :image-path   (string/replace image-path #"file://" "")
+                                            :text         "Update to latest version to see a nice image here!"})))))
+
+(fx/defn send-sticker-message
+  [cofx {:keys [hash pack]} current-chat-id]
   (when-not (string/blank? hash)
     (chat.message/send-message cofx {:chat-id      current-chat-id
                                      :content-type constants/content-type-sticker
@@ -117,22 +138,23 @@
 (fx/defn send-current-message
   "Sends message from current chat input"
   [{{:keys [current-chat-id] :as db} :db :as cofx}]
-  (let [{:keys [input-text]} (get-in db [:chats current-chat-id])]
-    (plain-text-message-fx input-text current-chat-id cofx)))
-
-(fx/defn send-transaction-result
-  {:events [:chat/send-transaction-result]}
-  [cofx chat-id params result]
-  ;;TODO: should be implemented on status-go side
-  ;;see https://github.com/status-im/team-core/blob/6c3d67d8e8bd8500abe52dab06a59e976ec942d2/rfc-001.md#status-gostatus-react-interface
-)
-
-;; effects
+  (let [{:keys [input-text]} (get-in db [:chat/inputs current-chat-id])]
+    (fx/merge cofx
+              (send-image)
+              (send-plain-text-message input-text current-chat-id))))
 
 (re-frame/reg-fx
  ::focus-rn-component
- (fn [ref]
+ (fn [^js ref]
    (try
      (.focus ref)
-     (catch :default e
+     (catch :default _
        (log/debug "Cannot focus the reference")))))
+
+(re-frame/reg-fx
+ ::clear-rn-component
+ (fn [ref]
+   (try
+     (.clear ref)
+     (catch :default _
+       (log/debug "Cannot clear the reference")))))

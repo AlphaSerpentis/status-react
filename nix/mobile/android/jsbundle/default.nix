@@ -1,77 +1,72 @@
 #
-# This Nix expression builds an index.*.js file for the current repository given a node modules Nix expression
+# This Nix expression builds the js files for the current repository given a node modules Nix expression
 #
 
-{ target-os ? "android",
-  stdenv, mkFilter, clojure, leiningen, nodejs, bash, git,
-  leinProjectDeps, localMavenRepoBuilder, projectNodePackage }:
+{ stdenv, lib, deps, pkgs }:
 
-let
-  lein-command = if target-os == "all" then "lein jsbundle" else "lein jsbundle-${target-os}";
-  leinProjectDepsLocalRepo = localMavenRepoBuilder "lein-project-deps" leinProjectDeps;
-
-in stdenv.mkDerivation {
-  name = "status-react-build-jsbundle-${target-os}";
+stdenv.mkDerivation {
+  name = "status-react-build-jsbundle-android";
   src =
     let path = ./../../../..;
-    in builtins.path { # We use builtins.path so that we can name the resulting derivation, otherwise the name would be taken from the checkout directory, which is outside of our control
+    # We use builtins.path so that we can name the resulting derivation,
+    # otherwise the name would be taken from the checkout directory,
+    # which is outside of our control inherit path;
+    in builtins.path {
       inherit path;
       name = "status-react-source-jsbundle";
       filter =
-        # Keep this filter as restrictive as possible in order to avoid unnecessary rebuilds and limit closure size
-        mkFilter {
+        # Keep this filter as restrictive as possible in order to avoid
+        # unnecessary rebuilds and limit closure size
+        lib.mkFilter {
           root = path;
           ignoreVCS = false;
           include = [ 
             "VERSION" "BUILD_NUMBER" "scripts/version/.*"
+            "src/.*" "shadow-cljs.edn" "index.js"
             # I want to avoid including the whole .git directory
             ".git/HEAD" ".git/objects" ".git/refs/heads/.*"
-            "src/.*" "prod/.*" "env/prod/.*"
-            "components/src/.*" 
-            "react-native/src" 
-            "react-native/src/cljsjs/.*"
-            "react-native/src/mobile/.*"
-            "status-modules/cljs/.*"
-            "status-modules/resources/.*"
-            "build.clj" "externs.js"
-            "project.clj" "prepare-modules.js"
-            # lein jsbundle stat's images to check if they exist
-            "resources/.*"
+            # shadow-cljs expects these for deps resolution
+            "mobile/js_files/package.json" "mobile/js_files/yarn.lock"
+            # build stat's images to check if they exist
+            "resources/.*" "translations/.*"
           ];
           exclude = [
             "resources/fonts/.*"
           ];
         };
     };
-  buildInputs = [ clojure leiningen nodejs bash git ];
+  buildInputs = with pkgs; [ clojure nodejs bash git openjdk];
 
-  LEIN_OFFLINE = "y";
-
-  phases = [ "unpackPhase" "patchPhase" "buildPhase" "installPhase" ];
+  phases = [ "unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase" ];
+  # Patching shadow-cljs.edn so it uses the local maven repo of dependencies provided by Nix
   patchPhase =
-    let anchor = '':url "https://github.com/status-im/status-react/"'';
+    let anchor = ''{:source-paths ["src" "test/cljs"]'';
     in ''
-      substituteInPlace project.clj \
+      substituteInPlace shadow-cljs.edn \
         --replace '${anchor}' \
                   '${anchor}
-        :local-repo "${leinProjectDepsLocalRepo}"' \
-        --replace '[rasom/lein-githooks "' ';; [rasom/lein-githooks "' \
-        --replace ':githooks' ';; :githooks' \
-        --replace ':pre-commit' ';; :pre-commit'
+       :maven {:local-repo "${deps.clojure}"}'
     '';
+  configurePhase = ''
+    # Symlink Node.js modules to build directory
+    ln -s ${deps.nodejs}/node_modules
+
+    # Symlink Node.JS dependency definitions
+    ln -sf mobile/js_files/package.json ./
+    ln -sf mobile/js_files/yarn.lock ./
+  '';
   buildPhase = ''
-    ln -s ${projectNodePackage}/node_modules
+    # Assemble CLASSPATH from available clojure dependencies.
+    # We append 'src' so it can find the local sources.
+    export CLASS_PATH="$(find ${deps.clojure} \
+      -iname '*.jar' | tr '\n' ':')src"
 
-    # On macOS, lein tries to create $HOME/.lein, which fails with java.lang.Exception: Couldn't create directories: /homeless-shelter/.lein, so we just make it use a temp dir
-    tmp=$(mktemp -d)
-    HOME=$tmp ${lein-command}
-    rm -rf $tmp
-    unset tmp
-
-    node prepare-modules.js
+    # target must be one of the builds defined in shadow-cljs.edn
+    java -cp "$CLASS_PATH" clojure.main \
+      -m shadow.cljs.devtools.cli release mobile
   '';
   installPhase = ''
     mkdir -p $out
-    cp index.*.js $out/
+    cp -r index.js app $out/
   '';
 }

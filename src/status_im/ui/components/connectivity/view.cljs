@@ -1,16 +1,17 @@
 (ns status-im.ui.components.connectivity.view
-  (:require-macros [status-im.utils.views :refer [defview letsubs] :as views])
-  (:require [reagent.core :as reagent]
-            [re-frame.core :as re-frame]
-            [status-im.ui.components.react :as react]
-            [status-im.ui.components.connectivity.styles :as styles]
+  (:require [re-frame.core :as re-frame]
+            [reagent.core :as reagent]
             [status-im.i18n :as i18n]
-            [status-im.ui.components.colors :as colors]
             [status-im.ui.components.animation :as animation]
-            [status-im.utils.utils :as utils]
+            [status-im.ui.components.colors :as colors]
+            [status-im.ui.components.connectivity.styles :as styles]
+            [status-im.ui.components.react :as react]
             [status-im.utils.datetime :as datetime]
             [status-im.utils.platform :as platform]
-            [taoensso.timbre :as log]))
+            [status-im.utils.utils :as utils]
+            [taoensso.timbre :as log])
+  (:require-macros
+   [status-im.utils.views :as views :refer [defview letsubs]]))
 
 (def connectivity-bar-height 36)
 (def neg-connectivity-bar-height (- connectivity-bar-height))
@@ -27,7 +28,7 @@
    :easing          ((if (= :in direction)
                        (animation/easing-in)
                        (animation/easing-out))
-                     (.-quad (animation/easing)))
+                     (.-quad ^js animation/easing))
    :duration        400
    :useNativeDriver true})
 
@@ -78,9 +79,11 @@
 
 (def to-hide? (reagent/atom false))
 
-(defn manage-visibility [connected? animate? anim-opacity anim-y status-hidden]
+(defn manage-visibility
   "status-hidden is a per-view state, while to-hide? is a global state common to
-all connectivity views (we have at least one view in home and one in chat)"
+  all connectivity views (we have at least one view in home and one in chat)"
+  [connected? animate? anim-opacity anim-y status-hidden]
+
   (if connected?
     (if animate?
       (when (and @to-hide? (not @status-hidden))
@@ -90,15 +93,15 @@ all connectivity views (we have at least one view in home and one in chat)"
                              {:toValue         0
                               :delay           800
                               :duration        150
-                              :easing          (.-ease (animation/easing))
+                              :easing          (.-ease ^js animation/easing)
                               :useNativeDriver true})
            (animation/timing anim-y
                              {:toValue         (if platform/desktop? 0 neg-connectivity-bar-height)
                               :delay           800
                               :duration        150
-                              :easing          (.-ease (animation/easing))
+                              :easing          (.-ease ^js animation/easing)
                               :useNativeDriver true})])
-         ;; second param of start() - a callback that fires when animation stops
+          ;; second param of start() - a callback that fires when animation stops
          #(do (reset! to-hide? false) (reset! status-hidden true))))
       (do
         (animation/set-value anim-opacity 0)
@@ -113,14 +116,14 @@ all connectivity views (we have at least one view in home and one in chat)"
           [(animation/timing anim-opacity
                              {:toValue         1
                               :duration        150
-                              :easing          (.-ease (animation/easing))
+                              :easing          (.-ease ^js animation/easing)
                               :useNativeDriver true})
            (animation/timing anim-y
                              {:toValue         (if platform/desktop? connectivity-bar-height 0)
                               :duration        150
-                              :easing          (.-ease (animation/easing))
+                              :easing          (.-ease ^js animation/easing)
                               :useNativeDriver true})])
-         ;; second param of start() - a callback that fires when animation stops
+          ;; second param of start() - a callback that fires when animation stops
          #(do (reset! to-hide? true) (reset! status-hidden false))))
       (do
         (animation/set-value anim-opacity 1)
@@ -234,7 +237,7 @@ all connectivity views (we have at least one view in home and one in chat)"
             window-width         (reagent/atom 0)]
     (let [loading-indicator? (:loading-indicator? ui-status-properties)]
       [react/view {:style     {:flex 1}
-                   :on-layout #(reset! window-width (-> % .-nativeEvent .-layout .-width))}
+                   :on-layout #(reset! window-width (-> ^js % .-nativeEvent .-layout .-width))}
        [react/view {:style {:z-index 2 :background-color colors/white}}
         header
         [react/view

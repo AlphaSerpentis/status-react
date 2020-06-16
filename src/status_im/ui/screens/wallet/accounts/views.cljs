@@ -1,21 +1,20 @@
 (ns status-im.ui.screens.wallet.accounts.views
-  (:require-macros [status-im.utils.views :as views])
-  (:require [status-im.ui.components.react :as react]
-            [status-im.ui.components.icons.vector-icons :as icons]
-            [status-im.ui.components.toolbar.styles :as toolbar.styles]
-            [status-im.ui.components.colors :as colors]
-            [status-im.i18n :as i18n]
-            [status-im.ui.components.list.views :as list]
-            [status-im.ui.components.chat-icon.screen :as chat-icon]
-            [status-im.ui.components.list-item.views :as list-item]
-            [status-im.wallet.utils :as wallet.utils]
-            [reagent.core :as reagent]
+  (:require [quo.animated :as reanimated]
+            [quo.core :as quo]
             [re-frame.core :as re-frame]
+            [status-im.i18n :as i18n]
+            [status-im.ui.components.chat-icon.screen :as chat-icon]
+            [status-im.ui.components.colors :as colors]
+            [status-im.ui.components.icons.vector-icons :as icons]
+            [status-im.ui.components.list-item.views :as list-item]
+            [status-im.ui.components.list.views :as list]
+            [status-im.ui.components.react :as react]
             [status-im.ui.screens.wallet.accounts.sheets :as sheets]
             [status-im.ui.screens.wallet.accounts.styles :as styles]
-            [status-im.utils.utils :as utils.utils]))
-
-(def state (reagent/atom {:tab :assets}))
+            [status-im.utils.utils :as utils.utils]
+            [status-im.wallet.utils :as wallet.utils]
+            [status-im.hardwallet.login :as hardwallet.login])
+  (:require-macros [status-im.utils.views :as views]))
 
 (views/defview account-card [{:keys [name color address type] :as account}]
   (views/letsubs [currency        [:wallet/currency]
@@ -86,25 +85,13 @@
        (assoc :on-press #(on-press token)))]))
 
 (views/defview assets []
-  (views/letsubs [{:keys [tokens nfts]} [:wallet/all-visible-assets-with-values]
+  (views/letsubs [{:keys [tokens]} [:wallet/all-visible-assets-with-values]
                   currency [:wallet/currency]
                   prices-loading? [:prices-loading?]]
     [list/flat-list {:data               tokens
                      :default-separator? false
                      :key-fn             :name
                      :render-fn          (render-asset (:code currency) prices-loading?)}]))
-
-(views/defview total-value []
-  (views/letsubs [currency        [:wallet/currency]
-                  portfolio-value [:portfolio-value]
-                  prices-loading? [:prices-loading?]]
-    [react/view {:style {:padding-horizontal 16}}
-     [react/view {:style {:flex-direction :row}}
-      (if prices-loading?
-        [react/small-loading-indicator]
-        [react/text {:style {:font-size 32 :color colors/black :font-weight "600"}} portfolio-value])
-      [react/text {:style {:font-size 32 :color colors/gray :font-weight "600"}} (str " " (:code currency))]]
-     [react/text {:style {:color colors/gray}} (i18n/label :t/wallet-total-value)]]))
 
 (defn- request-camera-permissions []
   (let [options {:handler :wallet.send/qr-scanner-result}]
@@ -119,40 +106,6 @@
            (utils.utils/show-popup (i18n/label :t/error)
                                    (i18n/label :t/camera-access-error)))
          50)}])))
-
-(views/defview accounts-options []
-  (views/letsubs [{:keys [mnemonic]} [:multiaccount]
-                  empty-balances?           [:empty-balances?]]
-    [react/view {:flex-direction :row :align-items :center}
-     [react/view {:flex 1 :padding-left 16}
-      (when (and mnemonic
-                 (not empty-balances?))
-        [react/touchable-highlight
-         {:on-press #(re-frame/dispatch [:navigate-to :backup-seed])}
-         [react/view {:flex-direction :row :align-items :center}
-          [react/view {:width           14 :height 14 :background-color colors/gray :border-radius 7 :align-items :center
-                       :justify-content :center :margin-right 9}
-           [react/text {:style {:color       colors/white
-                                :font-size   13
-                                :font-weight "700"}}
-            "!"]]
-          [react/text {:style               {:color colors/gray}
-                       :accessibility-label :back-up-your-seed-phrase-warning}
-           (i18n/label :t/back-up-your-seed-phrase)]]])]
-     [react/touchable-highlight
-      {:on-press #(request-camera-permissions)}
-      [react/view {:height          toolbar.styles/toolbar-height
-                   :width 24 :align-items :center
-                   :justify-content :center}
-       [icons/icon :main-icons/qr {:accessibility-label :accounts-qr-code}]]]
-     [react/touchable-highlight
-      {:on-press #(re-frame/dispatch [:bottom-sheet/show-sheet
-                                      {:content        (sheets/accounts-options mnemonic)
-                                       :content-height (if mnemonic 250 190)}])}
-      [react/view {:height          toolbar.styles/toolbar-height
-                   :width toolbar.styles/toolbar-height :align-items :center
-                   :justify-content :center}
-       [icons/icon :main-icons/more {:accessibility-label :accounts-more-options}]]]]))
 
 (views/defview send-button []
   (views/letsubs [account [:multiaccount/default-account]]
@@ -174,13 +127,75 @@
         [account-card account])
       [add-card]]]))
 
+(views/defview total-value [{:keys [animation minimized]}]
+  (views/letsubs [currency           [:wallet/currency]
+                  portfolio-value    [:portfolio-value]
+                  empty-balances?    [:empty-balances?]
+                  frozen-card?       [:hardwallet/frozen-card?]
+                  {:keys [mnemonic]} [:multiaccount]]
+    [reanimated/view {:style (styles/container {:minimized minimized})}
+     (when (or
+            (and frozen-card? minimized)
+            (and mnemonic minimized (not empty-balances?)))
+       [reanimated/view {:style (styles/accounts-mnemonic {:animation animation})}
+        [react/touchable-highlight
+         {:on-press #(re-frame/dispatch
+                      (if frozen-card?
+                        [::hardwallet.login/reset-pin]
+                        [:navigate-to :profile-stack {:screen :backup-seed
+                                                      :initial false}]))}
+         [react/view {:flex-direction :row
+                      :align-items    :center}
+          [react/view {:width            14
+                       :height           14
+                       :background-color colors/gray
+                       :border-radius    7
+                       :align-items      :center
+                       :justify-content  :center
+                       :margin-right     9}
+           [react/text {:style {:color       colors/white
+                                :font-size   13
+                                :font-weight "700"}}
+            "!"]]
+          [react/text {:style               {:color colors/gray}
+                       :accessibility-label :back-up-your-seed-phrase-warning}
+           (if frozen-card?
+             (i18n/label :t/your-card-is-frozen)
+             (i18n/label :t/back-up-your-seed-phrase))]]]])
+
+     [reanimated/view {:style (styles/value-container {:minimized minimized
+                                                       :animation animation})
+                       :pointer-events :none}
+      [reanimated/view {:style {:justify-content :center}}
+       [quo/text {:animated? true
+                  :weight    :semi-bold
+                  :style     (styles/value-text {:minimized minimized})}
+        portfolio-value
+        [quo/text {:animated? true
+                   :size      :inherit
+                   :weight    :inherit
+                   :color     :secondary}
+         (str " " (:code currency))]]]]
+     (when-not minimized
+       [reanimated/view
+        [quo/text {:color :secondary}
+         (i18n/label :t/wallet-total-value)]])]))
+
 (defn accounts-overview []
-  [react/view {:flex 1}
-   [react/scroll-view
-    [accounts-options]
-    [react/view {:margin-top 8}
-     [total-value]
-     [accounts]]
-    [assets]
-    [react/view {:height 68}]]
-   [send-button]])
+  (fn []
+    (let [{:keys [mnemonic]} @(re-frame/subscribe [:multiaccount])]
+      [react/view {:flex 1}
+       [quo/animated-header
+        {:extended-header   total-value
+         :use-insets        true
+         :right-accessories [{:on-press            #(request-camera-permissions)
+                              :icon                :main-icons/qr
+                              :accessibility-label :accounts-qr-code}
+                             {:on-press            #(re-frame/dispatch [:bottom-sheet/show-sheet
+                                                                        {:content (sheets/accounts-options mnemonic)}])
+                              :icon                :main-icons/more
+                              :accessibility-label :accounts-more-options}]}
+        [accounts]
+        [assets]
+        [react/view {:height 68}]]
+       [send-button]])))

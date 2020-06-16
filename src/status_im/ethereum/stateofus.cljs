@@ -4,8 +4,21 @@
 
 (def domain "stateofus.eth")
 
-(defn subdomain [username]
+(defn subdomain
+  [username]
   (str username "." domain))
+
+(defn username-with-domain
+  "checks if the username is a status username or a ens name
+  for that we check if there is a dot in the username, which
+  would indicate that there is already a domain name so we don't
+  concatenated stateofus domain to it"
+  [username]
+  (when (and (string? username)
+             (seq username))
+    (if (string/includes? username ".")
+      username
+      (subdomain username))))
 
 (defn username [name]
   (when (and name (string/ends-with? name domain))
@@ -15,7 +28,7 @@
   {:mainnet "0xDB5ac1a559b02E12F29fC0eC0e37Be8E046DEF49"
    ;;NOTE: can be enabled for testing builds
    ;;:testnet "0x11d9F481effd20D76cEE832559bd9Aca25405841"
-})
+   })
 
 (defn lower-case? [s]
   (when s

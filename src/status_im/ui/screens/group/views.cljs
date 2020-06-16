@@ -1,32 +1,31 @@
 (ns status-im.ui.screens.group.views
-  (:require-macros [status-im.utils.views :as views])
   (:require [cljs.spec.alpha :as spec]
             [clojure.string :as string]
             [re-frame.core :as re-frame]
             [reagent.core :as reagent]
-            [status-im.i18n :as i18n]
-            [status-im.ui.components.styles :as components.styles]
             [status-im.constants :as constants]
+            [status-im.i18n :as i18n]
             [status-im.ui.components.button :as button]
-            [status-im.ui.components.list-selection :as list-selection]
-            [status-im.ui.components.common.common :as components.common]
+            [status-im.ui.components.chat-icon.screen :as chat-icon]
             [status-im.ui.components.checkbox.view :as checkbox]
-            [status-im.ui.components.button :as button]
-            [status-im.utils.debounce :as debounce]
-            [status-im.ui.components.keyboard-avoid-presentation :as kb-presentation]
             [status-im.ui.components.colors :as colors]
-            [status-im.ui.components.react :as react]
+            [status-im.ui.components.contact.contact :as contact]
+            [status-im.ui.components.keyboard-avoid-presentation
+             :as
+             kb-presentation]
+            [status-im.ui.components.list-item.views :as list-item]
+            [status-im.ui.components.list-selection :as list-selection]
             [status-im.ui.components.list.views :as list]
+            [status-im.ui.components.react :as react]
+            [status-im.ui.components.search-input.view :as search]
+            [status-im.ui.components.toolbar :as bottom-toolbar]
             [status-im.ui.components.toolbar.view :as toolbar]
             [status-im.ui.components.topbar :as topbar]
-            [status-im.ui.components.toolbar :as bottom-toolbar]
-            [status-im.ui.components.search-input.view :as search]
-            [status-im.utils.platform :as platform]
-            [status-im.ui.components.chat-icon.screen :as chat-icon]
-            [status-im.ui.components.list-item.views :as list-item]
-            [status-im.ui.components.contact.contact :as contact]
-            [status-im.ui.screens.add-new.styles :as add-new.styles]
-            [status-im.ui.screens.group.styles :as styles]))
+            [status-im.ui.screens.group.styles :as styles]
+            [quo.core :as quo]
+            [status-im.utils.debounce :as debounce]
+            [status-im.utils.platform :as platform])
+  (:require-macros [status-im.utils.views :as views]))
 
 (defn- render-contact [row]
   [list-item/list-item
@@ -126,16 +125,14 @@
                          :max      constants/max-group-chat-participants})]]]]
 
         [react/view {:style {:padding-top 16
-                             :flex             1}}
+                             :flex        1}}
          [react/view {:style {:padding-horizontal 16}}
-          [react/view (add-new.styles/input-container)
-           [react/text-input
-            {:auto-focus          true
-             :on-change-text      #(re-frame/dispatch [:set :new-chat-name %])
-             :default-value       group-name
-             :placeholder         (i18n/label :t/set-a-topic)
-             :style               add-new.styles/input
-             :accessibility-label :chat-name-input}]]
+          [quo/text-input
+           {:auto-focus          true
+            :on-change-text      #(re-frame/dispatch [:set :new-chat-name %])
+            :default-value       group-name
+            :placeholder         (i18n/label :t/set-a-topic)
+            :accessibility-label :chat-name-input}]
           [react/text {:style (styles/members-title)}
            (i18n/label :t/members-title)]]
          [react/view {:style {:margin-top 8
@@ -206,9 +203,9 @@
 
 ;; Add participants to existing group chat
 (views/defview add-participants-toggle-list []
-  (views/letsubs [contacts                        [:contacts/all-contacts-not-in-current-chat]
-                  {:keys [name] :as current-chat} [:chats/current-chat]
-                  selected-contacts-count         [:selected-participants-count]]
+  (views/letsubs [contacts [:contacts/all-contacts-not-in-current-chat]
+                  current-chat [:chats/current-chat]
+                  selected-contacts-count [:selected-participants-count]]
     (let [current-participants-count (count (:contacts current-chat))]
       [kb-presentation/keyboard-avoiding-view  {:style styles/group-container}
        [toolbar/toolbar {:border-bottom-color colors/white}
@@ -243,18 +240,16 @@
      [topbar/topbar
       {:title  :t/edit-group
        :modal? true}]
-     [react/view {:style {:padding 16
-                          :flex    1}}
-      [react/view {:style (add-new.styles/input-container)}
-       [react/text-input
-        {:on-change-text      #(reset! new-group-chat-name %)
-         :default-value       name
-         :on-submit-editing   #(when (seq @new-group-chat-name)
-                                 (re-frame/dispatch [:group-chats.ui/name-changed chat-id @new-group-chat-name]))
-         :placeholder         (i18n/label :t/enter-contact-code)
-         :style               add-new.styles/input
-         :accessibility-label :new-chat-name
-         :return-key-type     :go}]]]
+     [react/scroll-view {:style {:padding 16
+                                 :flex    1}}
+      [quo/text-input
+       {:on-change-text      #(reset! new-group-chat-name %)
+        :default-value       name
+        :on-submit-editing   #(when (seq @new-group-chat-name)
+                                (re-frame/dispatch [:group-chats.ui/name-changed chat-id @new-group-chat-name]))
+        :placeholder         (i18n/label :t/enter-contact-code)
+        :accessibility-label :new-chat-name
+        :return-key-type     :go}]]
      [react/view {:style {:flex 1}}]
      [bottom-toolbar/toolbar
       {:show-border? true

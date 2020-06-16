@@ -1,21 +1,21 @@
 (ns status-im.ui.components.bottom-panel.views
-  (:require-macros [status-im.utils.views :as views])
-  (:require [status-im.ui.components.react :as react]
-            [status-im.ui.components.animation :as anim]
+  (:require ["react-native" :refer [BackHandler]]
             [reagent.core :as reagent]
+            [status-im.ui.components.animation :as anim]
             [status-im.ui.components.colors :as colors]
-            [status-im.react-native.js-dependencies :as js-dependencies]))
+            [status-im.ui.components.react :as react])
+  (:require-macros [status-im.utils.views :as views]))
 
 (def back-listener (atom nil))
 
 (defn remove-back-listener []
   (when @back-listener
-    (.remove @back-listener)
+    (.remove ^js @back-listener)
     (reset! back-listener nil)))
 
 (defn add-back-listener []
   (remove-back-listener)
-  (reset! back-listener (.addEventListener js-dependencies/back-handler
+  (reset! back-listener (.addEventListener BackHandler
                                            "hardwareBackPress"
                                            (fn [] true))))
 
@@ -42,14 +42,35 @@
                                :duration        500
                                :useNativeDriver true})])))
 
-(defn bottom-panel [obj render window-height]
+(defn bottom-panel [_ render window-height]
   (let [bottom-anim-value (anim/create-value window-height)
         alpha-value       (anim/create-value 0)
         clear-timeout     (atom nil)
         update?           (atom nil)
         current-obj       (reagent/atom nil)]
     (reagent/create-class
-     {:component-will-update (fn [_ [_ obj _ _]]
+     {:component-will-mount  (fn [args]
+                               (let [[_ obj _ _] (.-argv (.-props args))]
+                                 (when @clear-timeout (js/clearTimeout @clear-timeout))
+                                 (when (or (not= obj @current-obj) @update?)
+                                   (cond
+                                     @update?
+                                     (do (reset! update? false)
+                                         (show-panel-anim bottom-anim-value alpha-value))
+
+                                     (and @current-obj obj)
+                                     (do (reset! update? true)
+                                         (js/setTimeout #(reset! current-obj obj) 600)
+                                         (hide-panel-anim bottom-anim-value alpha-value (- window-height)))
+
+                                     obj
+                                     (do (reset! current-obj obj)
+                                         (show-panel-anim bottom-anim-value alpha-value))
+
+                                     :else
+                                     (do (reset! clear-timeout (js/setTimeout #(reset! current-obj nil) 600))
+                                         (hide-panel-anim bottom-anim-value alpha-value (- window-height)))))))
+      :component-will-update (fn [_ [_ obj _ _]]
                                (when @clear-timeout (js/clearTimeout @clear-timeout))
                                (when (or (not= obj @current-obj) @update?)
                                  (cond

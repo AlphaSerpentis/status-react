@@ -1,12 +1,11 @@
 (ns status-im.utils.config
-  (:require [status-im.react-native.js-dependencies :as rn-dependencies]
-            [status-im.utils.platform :as platform]
-            [clojure.string :as string]))
+  (:require [clojure.string :as string]
+            ["react-native-config" :default react-native-config]))
 
 (def config
   (memoize
    (fn []
-     (js->clj (.-default rn-dependencies/config) :keywordize-keys true))))
+     (js->clj react-native-config :keywordize-keys true))))
 
 (defn get-config
   ([k] (get (config) k))
@@ -40,6 +39,7 @@
 (def waku-enabled? (enabled? (get-config :WAKU_ENABLED "0")))
 (def commands-enabled? (enabled? (get-config :COMMANDS_ENABLED "0")))
 (def keycard-test-menu-enabled? (enabled? (get-config :KEYCARD_TEST_MENU "0")))
+(def qr-test-menu-enabled? (enabled? (get-config :QR_READ_TEST_MENU "0")))
 
 ;; CONFIG VALUES
 (def log-level
@@ -51,6 +51,6 @@
       string/upper-case))
 (def fleet (get-config :FLEET "eth.staging"))
 (def default-network (get-config :DEFAULT_NETWORK))
-(def pow-target (js/parseFloat (get-config :POW_TARGET "0.002")))
+(def pow-target (js/parseFloat (get-config :POW_TARGET "0.0001")))
 (def pow-time (js/parseInt (get-config :POW_TIME "1")))
 (def max-installations 2)

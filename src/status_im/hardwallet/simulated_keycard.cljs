@@ -1,6 +1,15 @@
 (ns status-im.hardwallet.simulated-keycard
-  (:require [status-im.hardwallet.keycard :as keycard]
-            [status-im.utils.utils :as utils]))
+  (:require [re-frame.core :as re-frame]
+            [re-frame.db :as re-frame.db]
+            [status-im.constants :as constants]
+            [status-im.ethereum.core :as ethereum]
+            [status-im.hardwallet.keycard :as keycard]
+            [status-im.native-module.core :as status]
+            [status-im.utils.types :as types]
+            [status-im.utils.utils :as utils]
+            [status-im.i18n :as i18n]
+            [clojure.string :as string]
+            [taoensso.timbre :as log]))
 
 (def initial-state
   {:card-connected?  false
@@ -12,6 +21,20 @@
   (swap! state assoc :card-connected? true)
   (doseq [callback (vals (get @state :on-card-connected))]
     (callback)))
+
+(defn connect-selected-card []
+  (swap! state assoc :application-info
+         {:free-pairing-slots     5
+          :app-version            "2.2"
+          :secure-channel-pub-key "04c3071768912a515c00aeab7ceb8a5bfda91d036f4a4e60b7944cee3ca7fb67b6d118e8df1e2480b87fd636c6615253245bbbc93a6a407f155f2c58f76c96ef0e",
+          :instance-uid           "1b360b10a9a68b7d494e8f059059f118"
+          :paired?                true
+          :has-master-key?        true
+          :initialized?           true
+          :pin-retry-counter      3
+          :puk-retry-counter      5
+          :key-uid                (get-in @re-frame.db/app-db [:multiaccounts/login :key-uid])})
+  (connect-card))
 
 (defn disconnect-card []
   (swap! state assoc :card-connected? false)
@@ -59,25 +82,28 @@
 (defn get-application-info [{:keys [on-success]}]
   (later #(on-success (get @state :application-info))))
 
-(defn install-applet [args])
+(defn install-applet [_])
+(defn install-cash-applet [_])
 
-(def kk1-password "6d9ZHjn94kFP4bPm")
-
+(def kk1-password "000000")
+(def default-puk "000000000000")
 (defn init-card [{:keys [pin on-success]}]
   (swap! state assoc :application-info
          {:free-pairing-slots     5
           :app-version            "2.2"
-          :secure-channel-pub-key "04c3071768912a515c00aeab7ceb8a5bfda91d036f4a4e60b7944cee3ca7fb67b6d118e8df1e2480b87fd636c6615253245bbbc93a6a407f155f2c58f76c96ef0e", :key-uid "", :instance-uid "9c3f27ee5dfc39c2b14f4d6d3379cd68"
+          :secure-channel-pub-key "04c3071768912a515c00aeab7ceb8a5bfda91d036f4a4e60b7944cee3ca7fb67b6d118e8df1e2480b87fd636c6615253245bbbc93a6a407f155f2c58f76c96ef0e",
+          :key-uid                "",
+          :instance-uid           "1b360b10a9a68b7d494e8f059059f118"
           :paired?                false
           :has-master-key?        false
           :initialized?           true})
   (swap! state assoc :pin pin)
   (later
    #(on-success {:password kk1-password
-                 :puk       "320612366918"
-                 :pin       pin})))
+                 :puk      default-puk
+                 :pin      pin})))
 
-(defn install-applet-and-init-card [args])
+(defn install-applet-and-init-card [_])
 
 (def kk1-pair "ADEol+GCD67EO7zU6ko0DNK7XrNs9w2+h9GxcibNY4yf")
 
@@ -85,42 +111,180 @@
   (when (= password kk1-password)
     (later #(on-success kk1-pair))))
 
-(defn generate-mnemonic [args])
-
-(defn generate-and-load-key [{:keys [pin pairing on-success]}]
+(defn generate-and-load-key
+  [{:keys [pin pairing on-success]}]
   (when (and (= pin (get @state :pin))
              (= pairing kk1-pair))
+    (let [{:keys [selected-id multiaccounts root-key derived]}
+          (:intro-wizard @re-frame.db/app-db)
+
+          {:keys [id address public-key derived key-uid]}
+          (or (->> multiaccounts
+                   (filter #(= (:id %) selected-id))
+                   first)
+              (assoc root-key :derived derived))
+
+          whisper     (get derived constants/path-whisper-keyword)
+          wallet      (get derived constants/path-default-wallet-keyword)
+          wallet-root (get derived constants/path-wallet-root-keyword)
+          password    (ethereum/sha3 pin)
+          response    {:key-uid                key-uid
+                       :encryption-public-key  (ethereum/sha3 pin)
+                       :address                address
+                       :whisper-public-key     (:public-key whisper)
+                       :instance-uid           "1b360b10a9a68b7d494e8f059059f118"
+                       :wallet-root-public-key (:public-key wallet-root)
+                       :wallet-root-address    (:address wallet-root)
+                       :whisper-address        (:address whisper)
+                       :public-key             public-key
+                       :whisper-private-key    "34bc7d0c258c4f2ac1dac4fd6c55c9478bac1f4a9d8b9f1152c8551ab7187b43"
+                       :wallet-address         (:address wallet)
+                       :wallet-public-key      (:public-key wallet)}]
+      (log/debug "[simulated kk] generate-and-load-key response" response)
+      (status/multiaccount-store-derived
+       id
+       [constants/path-wallet-root
+        constants/path-eip1581
+        constants/path-whisper
+        constants/path-default-wallet]
+       password
+       #(on-success response)))))
+
+(defn unblock-pin
+  [{:keys [puk on-success on-failure]}]
+  (if (= puk default-puk)
+    (do
+      (swap! state update :application-info assoc
+             :pin-retry-counter 3
+             :puk-retry-counter 5)
+      (later #(on-success true)))
+    (do
+      (swap! state update-in
+             [:application-info :puk-retry-counter]
+             (fnil dec 5))
+      (later
+       #(on-failure
+         #js {:code    "EUNSPECIFIED"
+              :message "Unexpected error SW, 0x63C2"})))))
+
+(defn verify-pin [{:keys [pin pairing on-success on-failure]}]
+  (if (and (= pairing kk1-pair)
+           (= pin (get @state :pin)))
+    (later #(on-success 3))
+    (do
+      (swap! state update-in
+             [:application-info :pin-retry-counter]
+             (fnil dec 3))
+      (later #(on-failure
+               #js {:code    "EUNSPECIFIED"
+                    :message "Unexpected error SW, 0x63C2"})))))
+
+(defn change-pin [args]
+  (log/warn "change-pin not implemented" args))
+(defn unpair [args]
+  (log/warn "unpair not implemented" args))
+(defn delete [args]
+  (log/warn "delete not implemented" args))
+(defn remove-key [args]
+  (log/warn "remove-key not implemented" args))
+(defn remove-key-with-unpair [args]
+  (log/warn "remove-key-with-unpair not implemented" args))
+
+(defn normalize-path [path]
+  (if (string/starts-with? path "m/")
+    (str constants/path-wallet-root
+         "/" (last (string/split path "/")))
+    path))
+
+(defn export-key [{:keys [pin on-success on-failure]}]
+  (let [wallet-root-address (get-in
+                             @re-frame.db/app-db
+                             [:multiaccount :wallet-root-address])
+        accounts            (get @re-frame.db/app-db :multiaccount/accounts)
+        hashed-password     (ethereum/sha3 pin)
+        path-num            (inc (get-in @re-frame.db/app-db [:multiaccount :latest-derived-path]))
+        path                (str "m/" path-num)]
+    (status/multiaccount-load-account
+     wallet-root-address
+     hashed-password
+     (fn [value]
+       (let [{:keys [id error]} (types/json->clj value)]
+         (if error
+           (re-frame/dispatch [::new-account-error :password-error error])
+           (status/multiaccount-derive-addresses
+            id
+            [path]
+            (fn [derived]
+              (let [derived-address (get-in (types/json->clj derived) [(keyword path) :address])]
+                (if (some #(= derived-address (get % :address)) accounts)
+                  (re-frame/dispatch [::new-account-error :account-error (i18n/label :t/account-exists-title)])
+                  (status/multiaccount-store-derived
+                   id
+                   [path]
+                   hashed-password
+                   (fn [result]
+                     (let [{:keys [error] :as result}  (types/json->clj result)
+                           {:keys [publicKey]} (get result (keyword path))]
+                       (if error
+                         (on-failure error)
+                         (on-success publicKey)))))))))))))))
+
+(defn unpair-and-delete [_])
+
+;; It is a bit complicated to verify password before we have multiaccs main
+;; wallet address, so we just define a set of "allowed" pins
+(def allowed-pins
+  #{"121212" "111111" "222222" "123123"})
+
+(defn get-keys [{:keys [on-success on-failure pin]}]
+  (if (contains? allowed-pins pin)
+    (do
+      (swap! state assoc :pin pin)
+      (later
+       #(on-success
+         {:key-uid               (get-in @state [:application-info :key-uid])
+          :encryption-public-key (ethereum/sha3 pin)})))
+    (do
+      (log/debug "Incorrect PIN" pin)
+      (swap! state update-in
+             [:application-info :pin-retry-counter]
+             (fnil dec 3))
+      (later
+       #(on-failure
+         #js {:code    "EUNSPECIFIED"
+              :message "Unexpected error SW, 0x63C2"})))))
+
+(defn sign [{:keys [pin on-success on-failure]}]
+  (if (= pin (get @state :pin))
     (later
-     #(on-success
-       {:key-uid                "08f1e42f076b956715dac6b93ad1282e435be877a90c9353f6c6dfe455474047"
-        :encryption-public-key  "04a15b33d5c76ff72c3b3863fe2cb2b45c25f87c6accc96fa95457845e3f69ba5fc2d835351d17b5031e1723513824612003facb98f508af2866382ed996125b4d"
-        :address                "f75457177cd2b7bdc407a6c4881eb490f66ca3c2"
-        :whisper-public-key     "04d25f563a8a2897a7025a1f022eee78ba7c0e182aae04ab640bc9e118698734257647e18cb6c95f825e6d03d8e3550178b13a30dceba722be7c8fcd0adecc0fa9"
-        :instance-uid           "1b360b10a9a68b7d494e8f059059f118"
-        :wallet-root-public-key "0463187f5c917eef481e04af704c14e57a9e8596516f0ec10a4556561ad49b5aa249976ec545d37d04f4d4c7d1c0d9a2141dc61e458b09631d25fa7858c6323ea3"
-        :wallet-root-address    "e034a084d2282e265f83e3fdfa48b42c3d53312a"
-        :whisper-address        "87f1c9bbe1c907143413cf018caad355dde16b3c"
-        :public-key             "04035d4efe4e96f8fa0e49a94433c972e510f0c8698348b4e1acd3b4d3083c61283b932ec54dd9512566931b26627a5d3122a916577459b7926fce6a278055f899"
-        :whisper-private-key    "34bc7d0c258c4f2ac1dac4fd6c55c9478bac1f4a9d8b9f1152c8551ab7187b43"
-        :wallet-address         "c8435ef92bbb76bc1861833713e202e18ebd4601"
-        :wallet-public-key      "044887a5a2599d722aa1af8cda800a17415d3a071c4706e111ad05465c3bf10fcb6f92c8d74df994160e0ba4aeff71f7a6d256cf36ce8cff3d313b8a0709404886"}))))
+     #(on-success "123"))
+    (do
+      (swap! state update-in
+             [:application-info :pin-retry-counter]
+             (fnil dec 3))
+      (later
+       #(on-failure
+         #js {:code    "EUNSPECIFIED"
+              :message "Unexpected error SW, 0x63C2"})))))
 
-(defn unblock-pin [args])
+(defn sign-typed-data [args]
+  (log/warn "sign-typed-data not implemented" args))
 
-(defn verify-pin [{:keys [pin pairing on-success]}]
-  (when (and (= pairing kk1-pair)
-             (= pin (get @state :pin)))
-    (later #(on-success 3))))
+(defn save-multiaccount-and-login
+  [{:keys [multiaccount-data password settings node-config accounts-data]}]
+  (status/save-account-and-login
+   (types/clj->json multiaccount-data)
+   password
+   (types/clj->json settings)
+   node-config
+   (types/clj->json accounts-data)))
 
-(defn change-pin [args])
-(defn unpair [args])
-(defn delete [args])
-(defn remove-key [args])
-(defn remove-key-with-unpair [args])
-(defn export-key [args])
-(defn unpair-and-delete [args])
-(defn get-keys [args])
-(defn sign [args])
+(defn login [{:keys [multiaccount-data password]}]
+  (status/login multiaccount-data password))
+
+(defn send-transaction-with-signature
+  [{:keys [transaction on-completed]}]
+  (status/send-transaction transaction (ethereum/sha3 (:pin @state)) on-completed))
 
 (defrecord SimulatedKeycard []
   keycard/Keycard
@@ -150,8 +314,6 @@
     (install-applet-and-init-card args))
   (keycard/pair [this args]
     (pair args))
-  (keycard/generate-mnemonic [this args]
-    (generate-mnemonic args))
   (keycard/generate-and-load-key [this args]
     (generate-and-load-key args))
   (keycard/unblock-pin [this args]
@@ -175,4 +337,10 @@
   (keycard/get-keys [this args]
     (get-keys args))
   (keycard/sign [this args]
-    (sign args)))
+    (sign args))
+  (keycard/save-multiaccount-and-login [this args]
+    (save-multiaccount-and-login args))
+  (keycard/login [this args]
+    (login args))
+  (keycard/send-transaction-with-signature [this args]
+    (send-transaction-with-signature args)))

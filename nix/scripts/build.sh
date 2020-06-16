@@ -23,15 +23,17 @@ function cleanup() {
   fi
 }
 
-trap cleanup EXIT ERR INT QUIT
+# If you want to clean after every build set _NIX_CLEAN=true
+if [[ -n "${_NIX_CLEAN}" ]]; then
+    trap cleanup EXIT ERR INT QUIT
+fi
 
 # build output will end up under /nix, we have to extract it
 function extractResults() {
   local nixResultPath="$1"
   mkdir -p "${resultPath}"
-  cp -vfr ${nixResultPath}/* "${resultPath}"
+  cp -vfr ${nixResultPath}/* "${resultPath}" | sed 's#'${PWD}'#.#'
   chmod -R u+w "${resultPath}"
-  ls -l "${resultPath}"
 }
 
 targetAttr="${1}"
@@ -56,7 +58,8 @@ nixOpts=(
 echo "Running: nix-build "${nixOpts[@]}" "${@}" default.nix"
 nixResultPath=$(nix-build "${nixOpts[@]}" "${@}" default.nix)
 
-echo "Extracting result: ${nixResultPath}"
+echo -e "\n${YLW}Extracting result${RST}: ${BLD}${nixResultPath}${RST}"
+
 extractResults "${nixResultPath}"
 
-echo -e "${GRN}SUCCESS${RST}"
+echo -e "\n${GRN}SUCCESS${RST}"

@@ -4,11 +4,9 @@
             [status-im.mailserver.core :as mailserver]
             [status-im.multiaccounts.login.core :as login]
             [status-im.multiaccounts.model :as multiaccounts.model]
-            [status-im.pairing.core :as pairing]
             [status-im.transport.filters.core :as transport.filters]
             [status-im.transport.message.core :as transport.message]
             [status-im.utils.fx :as fx]
-            [status-im.utils.types :as types]
             [taoensso.timbre :as log]))
 
 (fx/defn status-node-started
@@ -44,13 +42,17 @@
 
 (fx/defn process
   [cofx event-str]
-  (let [{:keys [type event]} (types/json->clj event-str)]
+  ;; We only convert to clojure when strictly necessary or we know it
+  ;; won't impact performance, as it is a fairly costly operation on large-ish
+  ;; data structures
+  (let [^js data (.parse js/JSON event-str)
+        ^js event-js (.-event data)
+        type (.-type data)]
     (case type
-      "node.login"         (status-node-started cofx event)
-      "envelope.sent"      (transport.message/update-envelopes-status cofx (:ids event) :sent)
-      "envelope.expired"   (transport.message/update-envelopes-status cofx (:ids event) :not-sent)
-      "bundles.added"      (pairing/handle-bundles-added cofx event)
-      "mailserver.request.completed" (mailserver/handle-request-completed cofx event)
+      "node.login"         (status-node-started cofx (js->clj event-js :keywordize-keys true))
+      "envelope.sent"      (transport.message/update-envelopes-status cofx (:ids (js->clj event-js :keywordize-keys true)) :sent)
+      "envelope.expired"   (transport.message/update-envelopes-status cofx (:ids (js->clj event-js :keywordize-keys true)) :not-sent)
+      "mailserver.request.completed" (mailserver/handle-request-completed cofx (js->clj event-js :keywordize-keys true))
       "mailserver.request.expired"   (when (multiaccounts.model/logged-in? cofx)
                                        (mailserver/resend-request cofx {:request-id (.-hash event-js)}))
       "discovery.summary"  (summary cofx (js->clj event-js :keywordize-keys true))

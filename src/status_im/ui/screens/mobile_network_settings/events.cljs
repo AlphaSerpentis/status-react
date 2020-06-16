@@ -5,7 +5,7 @@
    [status-im.utils.fx :as fx]
    [status-im.ui.components.bottom-sheet.core :as bottom-sheet]
    [status-im.multiaccounts.model :as multiaccounts.model]
-   [status-im.ui.screens.navigation :as navigation]
+   [status-im.navigation :as navigation]
    [status-im.mailserver.core :as mailserver]
    [status-im.ui.screens.mobile-network-settings.utils :as utils]))
 
@@ -90,7 +90,8 @@
    (fx/merge
     cofx
     (bottom-sheet/hide-bottom-sheet)
-    (navigation/navigate-to-cofx :mobile-network-settings {}))))
+    (navigation/navigate-to-cofx :profile-stack {:screen  :mobile-network-settings
+                                                 :initial false}))))
 
 ;;:mobile-network-offline
 

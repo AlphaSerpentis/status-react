@@ -2,7 +2,7 @@ from _pytest.outcomes import Failed
 import time
 
 from tests import marks
-from tests.users import transaction_senders, transaction_recipients
+from tests.users import transaction_senders, transaction_recipients, ens_user_ropsten
 from tests.base_test_case import MultipleDeviceTestCase, SingleDeviceTestCase
 from views.sign_in_view import SignInView
 
@@ -35,8 +35,15 @@ class TestCommandsMultipleDevices(MultipleDeviceTestCase):
         request_transaction.request_transaction_button.click()
         chat_2_request_message = chat_2.chat_element_by_text('↓ Incoming transaction')
 
+        chat_2_request_message.long_press_element()
+        if chat_2.reply_message_button.is_element_displayed():
+            self.errors.append('Reply is available on long-tap on Incoming transaction message!')
+
         chat_1 = home_1.get_chat(device_2_username).click()
         chat_1_sender_message = chat_1.chat_element_by_text('↑ Outgoing transaction')
+        chat_1_sender_message.long_press_element()
+        if chat_1.reply_message_button.is_element_displayed():
+            self.errors.append('Reply is available on long-tap on Outgoing transaction message!')
         send_message = chat_1_sender_message.sign_and_send.click()
         send_message.next_button.click()
         send_message.sign_transaction()
@@ -114,9 +121,6 @@ class TestCommandsMultipleDevices(MultipleDeviceTestCase):
         send_message = chat_1_sender_message.sign_and_send.click()
         send_message.next_button.click()
         send_message.sign_transaction()
-        if chat_1_sender_message.transaction_status.text != 'Pending':
-            self.errors.append('Wrong state is shown for outgoing transaction: "Pending" is expected, in fact'
-                               ' %s ' % chat_1_sender_message.transaction_status.text)
         updated_timestamp_sender = chat_1_sender_message.timestamp_message.text
         if updated_timestamp_sender == timestamp_sender:
             self.errors.append("Timestamp of message is not updated after signing transaction")
@@ -192,7 +196,7 @@ class TestCommandsMultipleDevices(MultipleDeviceTestCase):
                                'in fact %s ' % chat_2_sender_message.transaction_status.text)
         send_message = chat_2_sender_message.sign_and_send.click()
         send_message.next_button.click()
-        send_message.sign_transaction()
+        send_message.sign_transaction(default_gas_price=False)
 
         home_2.just_fyi('Check that transaction message is updated with new status after offline')
         chat_2.toggle_airplane_mode()
@@ -235,11 +239,9 @@ class TestCommandsMultipleDevices(MultipleDeviceTestCase):
         chat_2 = home_2.get_chat(sender['username']).click()
         chat_2_receiver_message = chat_2.chat_element_by_text('↓ Incoming transaction')
         chat_2_receiver_message.decline_transaction.click()
-        for status in chat_2_receiver_message.transaction_status.text, chat_1_sender_message.transaction_status.text:
-            if status != 'Transaction declined':
-                self.errors.append('Wrong state is shown: "Transaction declined" is expected, in fact'
-                                   ' %s ' % status)
-
+        for message in chat_1_sender_message, chat_2_receiver_message:
+            if not message.contains_text('Transaction declined' ,20):
+                self.errors.append('Message status is not updated to  "Transaction declined"')
         home_1.just_fyi('Decline transaction request and check that state is changed')
         chat_1.commands_button.click()
         request_amount = chat_1.get_unique_amount()
@@ -250,7 +252,7 @@ class TestCommandsMultipleDevices(MultipleDeviceTestCase):
         chat_1_request_message = chat_1.chat_element_by_text('↓ Incoming transaction')
         chat_2_sender_message = chat_2.chat_element_by_text('↑ Outgoing transaction')
         chat_2_sender_message.decline_transaction.click()
-
+        chat_1.element_by_text_part('Transaction declined').wait_for_element(20)
         for status in chat_2_sender_message.transaction_status.text, chat_1_request_message.transaction_status.text:
             if status != 'Transaction declined':
                 self.errors.append('Wrong state is shown: "Transaction declined" is expected, in fact'
@@ -265,11 +267,11 @@ class TestCommandsSingleDevices(SingleDeviceTestCase):
 
     @marks.testrail_id(6279)
     @marks.high
-    def test_send_eth_to_ens(self):
+    def test_send_eth_to_ens_in_chat(self):
         sign_in = SignInView(self.driver)
         sender = transaction_senders['E']
         home = sign_in.recover_access(sender['passphrase'])
-        chat = home.add_contact('nastya')
+        chat = home.add_contact(ens_user_ropsten['ens'])
         chat.commands_button.click()
         amount = chat.get_unique_amount()
 
@@ -280,7 +282,8 @@ class TestCommandsSingleDevices(SingleDeviceTestCase):
 
         from views.send_transaction_view import SendTransactionView
         send_transaction = SendTransactionView(self.driver)
-        send_transaction.sign_transaction()
+        send_transaction.ok_got_it_button.click()
+        send_transaction.sign_transaction(default_gas_price=False)
         chat_sender_message = chat.chat_element_by_text('↑ Outgoing transaction')
         self.network_api.wait_for_confirmation_of_transaction(sender['address'], amount, confirmations=15)
         if chat_sender_message.transaction_status.text != 'Confirmed':

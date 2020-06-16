@@ -3,26 +3,12 @@
   pkgs ? import ./pkgs.nix { inherit config; }
 }:
 
-with pkgs;
 let
-  localMavenRepoBuilder = callPackage ./tools/maven/maven-repo-builder.nix {
-    inherit stdenv;
-  };
+  inherit (pkgs) stdenv callPackage;
 
-  status-go = callPackage ./status-go {
-    inherit (mobile) xcodeWrapper;
-    androidPkgs = mobile.android.androidComposition;
-  };
-
-  desktop = callPackage ./desktop {
-    inherit darwin;
-    status-go = status-go.desktop;
-  };
-
-  mobile = callPackage ./mobile {
-    inherit status-go localMavenRepoBuilder;
-    inherit (xcodeenv) composeXcodeWrapper;
-  };
+  status-go = callPackage ./status-go { };
+  desktop = callPackage ./desktop { inherit status-go; };
+  mobile = callPackage ./mobile { inherit status-go; };
 in {
   inherit mobile desktop status-go;
 }

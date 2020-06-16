@@ -1,10 +1,9 @@
 (ns status-im.signing.keycard
   (:require [re-frame.core :as re-frame]
-            [status-im.utils.fx :as fx]
-            [status-im.native-module.core :as status]
-            [status-im.utils.types :as types]
             [status-im.ethereum.abi-spec :as abi-spec]
-            [status-im.ethereum.core :as ethereum]
+            [status-im.native-module.core :as status]
+            [status-im.utils.fx :as fx]
+            [status-im.utils.types :as types]
             [taoensso.timbre :as log]))
 
 (re-frame/reg-fx
@@ -79,11 +78,12 @@
   {:events [:signing.ui/sign-with-keycard-pressed]}
   [{:keys [db] :as cofx}]
   (let [message (get-in db [:signing/tx :message])]
-    (fx/merge cofx
-              {:db (-> db
-                       (assoc-in [:hardwallet :pin :enter-step] :sign)
-                       (assoc-in [:signing/sign :keycard-step] :pin)
-                       (assoc-in [:signing/sign :type] :keycard))}
-              (if message
-                (hash-message message)
-                (hash-transaction)))))
+    (fx/merge
+     cofx
+     {:db (-> db
+              (assoc-in [:hardwallet :pin :enter-step] :sign)
+              (assoc-in [:signing/sign :type] :keycard)
+              (assoc-in [:signing/sign :keycard-step] :pin))}
+     #(if message
+        (hash-message % message)
+        (hash-transaction %)))))

@@ -5,8 +5,6 @@
             [status-im.ui.screens.profile.contact.views :as profile.contact]
             [status-im.ui.screens.group.views :as group]
             [status-im.ui.screens.profile.group-chat.views :as profile.group-chat]
-            [status-im.chat.models.loading :as chat.loading]
-            [status-im.ui.screens.group.events :as group.events]
             [status-im.chat.models :as chat.models]
             [status-im.ui.components.tabbar.styles :as tabbar.styles]
             [status-im.ui.screens.stickers.views :as stickers]))
@@ -22,11 +20,12 @@
      :style     {:padding-bottom tabbar.styles/tabs-diff}
      :component home/home}
     {:name      :chat
-     :on-focus  [::chat.loading/load-messages]
      :component chat/chat}
     {:name      :profile
+     :insets    {:top false}
      :component profile.contact/profile}
     {:name      :group-chat-profile
+     :insets    {:top false}
      :component profile.group-chat/group-chat-profile}
     {:name      :stickers
      :component stickers/packs}

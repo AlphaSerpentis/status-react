@@ -1,7 +1,7 @@
 import time
 
 from tests import marks, camera_access_error_text
-from tests.users import basic_user, dummy_user
+from tests.users import basic_user, dummy_user, ens_user_ropsten
 from tests.base_test_case import SingleDeviceTestCase, MultipleDeviceTestCase
 from views.sign_in_view import SignInView
 
@@ -135,7 +135,8 @@ class TestChatManagement(SingleDeviceTestCase):
         contacts_view.public_key_edit_box.paste_text_from_clipboard()
         if contacts_view.public_key_edit_box.text != public_key:
             self.driver.fail('Public key is not pasted from clipboard')
-        contacts_view.confirm()
+        contacts_view.public_key_edit_box.click()
+        contacts_view.confirm_until_presence_of_element(chat.chat_message_input)
         contacts_view.get_back_to_home_view()
         if not home.get_chat(basic_user['username']).is_element_present():
             self.driver.fail("No chat open in home view")
@@ -202,35 +203,50 @@ class TestChatManagement(SingleDeviceTestCase):
         contacts_view.deny_button.wait_for_visibility_of_element(2)
 
     @marks.testrail_id(5757)
-    @marks.critical
-    @marks.skip
-    # TODO: skipped due to issue in e2e build (emulators) only
-    # if start typing in search field - empty chat view is shown
+    @marks.medium
     def test_search_chat_on_home(self):
         sign_in = SignInView(self.driver)
         home = sign_in.create_user()
-        search_list = list()
 
+        home.just_fyi('Join public chat, start 1-1 with username and with ENS')
         chat_name = home.get_random_chat_name()
-        search_list.append(chat_name)
         public_chat = home.join_public_chat(chat_name)
         public_chat.get_back_to_home_view()
+        for public_key in (basic_user['public_key'], ens_user_ropsten['ens']):
+            chat = home.add_contact(public_key)
+            chat.get_back_to_home_view()
 
-        chat = home.add_contact(basic_user['public_key'])
-        search_list.append(basic_user['username'])
-        chat.get_back_to_home_view()
+        search_list = {
+            basic_user['username']: basic_user['username'],
+            ens_user_ropsten['username']: ens_user_ropsten['ens'],
+            chat_name: chat_name
+        }
 
+        home.just_fyi('Can search for public chat name, ens name, username')
         home.swipe_down()
         for keyword in search_list:
-            home.search_chat_input.send_keys(keyword)
+            home.search_by_keyword(keyword)
             search_results = home.chat_name_text.find_elements()
             if not search_results:
                 self.errors.append('No search results after searching by %s keyword' % keyword)
             for element in search_results:
-                if keyword not in element.text:
+                if search_list[keyword] not in element.text:
                     self.errors.append("'%s' is shown on the home screen after searching by '%s' keyword" %
-                                       (element.text, keyword))
-            home.search_chat_input.clear()
+                                            (element.text, keyword))
+            home.cancel_button.click()
+
+        home.just_fyi('Can search for public chat while offline')
+        home.toggle_airplane_mode()
+        home.search_chat_input.click()
+        home.search_chat_input.send_keys(chat_name)
+        search_results = home.chat_name_text.find_elements()
+        if not search_results:
+            self.errors.append('No search results after searching by %s keyword' % chat_name)
+        for element in search_results:
+            if search_list[chat_name] not in element.text:
+                self.errors.append("'%s' is shown on the home screen after searching by '%s' keyword" %
+                                   (element.text, chat_name))
+
         self.errors.verify_no_errors()
 
     @marks.testrail_id(6221)
@@ -252,18 +268,22 @@ class TestChatManagement(SingleDeviceTestCase):
         sign_in = SignInView(self.driver)
         home = sign_in.create_user()
         chat_view = home.add_contact(basic_user["public_key"], add_in_contacts=False)
+
+        chat_view.just_fyi('Block user not added as contact from chat view')
         chat_view.chat_options.click()
         chat_view.view_profile_button.click()
         chat_view.block_contact()
+
+        chat_view.just_fyi('Unblock user not added as contact from chat view')
         profile = sign_in.profile_button.click()
         profile.contacts_button.click()
         profile.blocked_users_button.click()
         profile.element_by_text(basic_user["username"]).click()
         chat_view.unblock_contact_button.click()
-        chat_view.back_button.click()
-        home.plus_button.click()
-        home.start_new_chat_button.click()
-        if home.element_by_text(basic_user["username"]).is_element_displayed():
+
+        profile.just_fyi('Navigating to contact list and check that user is not in list')
+        profile.back_button.click(2)
+        if profile.element_by_text(basic_user["username"]).is_element_displayed():
             self.driver.fail("Unblocked user not added previously in contact list added in contacts!")
 
     @marks.testrail_id(5496)
@@ -299,6 +319,51 @@ class TestChatManagement(SingleDeviceTestCase):
 
         self.errors.verify_no_errors()
 
+    @marks.testrail_id(5498)
+    @marks.medium
+    def test_share_user_profile_url_public_chat(self):
+        sign_in = SignInView(self.driver)
+        home = sign_in.create_user()
+
+        sign_in.just_fyi('Join to one-to-one chat and share link to other user profile via messenger')
+        chat_view = home.add_contact(dummy_user["public_key"])
+        chat_view.chat_options.click()
+        chat_view.view_profile_button.click_until_presence_of_element(chat_view.remove_from_contacts)
+        chat_view.profile_details.click()
+        chat_view.share_button.click()
+        chat_view.share_via_messenger()
+        if not chat_view.element_by_text_part('https://join.status.im/u/%s' % dummy_user["public_key"]).is_element_present():
+             self.errors.append("Can't share public key of contact")
+        for _ in range(2):
+             chat_view.click_system_back_button()
+
+        sign_in.just_fyi('Join to public chat and share link to it via messenger')
+        chat_view.get_back_to_home_view()
+        public_chat_name = 'pubchat'
+        public_chat = home.join_public_chat(public_chat_name)
+        public_chat.chat_options.click()
+        public_chat.share_chat_button.click()
+        public_chat.share_via_messenger()
+        if not chat_view.element_by_text_part('https://join.status.im/%s' % public_chat_name).is_element_present():
+             self.errors.append("Can't share link to public chat")
+        for _ in range(2):
+             chat_view.click_system_back_button()
+        chat_view.get_back_to_home_view()
+
+        sign_in.just_fyi('Open URL and share link to it via messenger')
+        daap_view = home.dapp_tab_button.click()
+        browsing_view = daap_view.open_url('dap.ps')
+        browsing_view.share_url_button.click()
+        browsing_view.share_via_messenger()
+        expeceted_text_1 = 'https://join.status.im/b/https://dap.ps'
+        expeceted_text_2 = 'https://join.status.im/b/http://dap.ps'
+
+        if not (chat_view.element_by_text_part(expeceted_text_1).is_element_present() or
+                chat_view.element_by_text_part(expeceted_text_2).is_element_present()):
+            self.errors.append("Can't share link to URL")
+
+        self.errors.verify_no_errors()
+
 
 @marks.chat
 class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
@@ -319,7 +384,7 @@ class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
         chat_2.send_message_button.click()
         chat_2.driver.quit()
 
-        device_1.just_fyi('tap on userpic and check redirect to user profile')
+        device_1.just_fyi('Tap on userpic and check redirect to user profile')
         chat_element = chat_1.chat_element_by_text(message)
         chat_element.find_element()
         username = chat_element.username.text
@@ -332,17 +397,18 @@ class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
             if not element.scroll_to_element():
                 self.errors.append('%s is not visible' % element.name)
 
-        device_1.just_fyi('add user to contacts, check contact list in Profile and below "Start new chat"')
+        device_1.just_fyi('Add user to contacts, check contact list in Profile')
         chat_1.add_to_contacts.click()
         if not chat_1.remove_from_contacts.is_element_displayed():
             self.errors.append("'Add to contacts' is not changed to 'Remove from contacts'")
+        chat_1.get_back_to_home_view()
         profile_1 = chat_1.profile_button.click()
         userprofile = profile_1.open_contact_from_profile(username)
         if not userprofile.remove_from_contacts.is_element_displayed():
             self.errors.append("'Add to contacts' is not changed to 'Remove from contacts'")
+        profile_1.get_back_to_home_view()
 
-        profile_1.home_button.click()
-        chat_1.get_back_to_home_view()
+        device_1.just_fyi('Check that user is added to contacts below "Start new chat" and you redirected to 1-1 on tap')
         home_1.plus_button.click()
         home_1.start_new_chat_button.click()
         if not home_1.element_by_text(username).is_element_displayed():
@@ -353,15 +419,15 @@ class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
         if chat_1.add_to_contacts.is_element_displayed():
             self.errors.append('"Add to contacts" button is shown in 1-1 after adding user to contacts from profile')
 
-        device_1.just_fyi('remove user from contacts')
+        device_1.just_fyi('Remove user from contacts')
         chat_1.profile_button.click()
-        profile_1.element_by_text(username).click()
+        userprofile = profile_1.open_contact_from_profile(username)
         userprofile.remove_from_contacts.click()
         if userprofile.remove_from_contacts.is_element_displayed():
             self.errors.append("'Remove from contacts' is not changed to 'Add to contacts'")
+
+        device_1.just_fyi('Check that user is removed from contact list in profile')
         userprofile.back_button.click()
-        # TODO: next line is added temporary to avoid navigation issue #7437 - should be deleted after fix
-        home_1.profile_button.click()
         if profile_1.element_by_text(username).is_element_displayed():
             self.errors.append('List of contacts in profile contains removed user')
         profile_1.home_button.click()
@@ -567,5 +633,53 @@ class TestChatManagementMultipleDevice(MultipleDeviceTestCase):
         public_replied_message = chat_public_1.chat_element_by_text(message_from_receiver)
         if public_replied_message.replied_message_text != message_from_sender:
             self.errors.append("Reply is not present in message received in public chat")
+
+        self.errors.verify_no_errors()
+
+    @marks.testrail_id(6267)
+    @marks.medium
+    def test_open_user_profile_long_press_on_message(self):
+        self.create_drivers(2)
+        device_1, device_2 = SignInView(self.drivers[0]), SignInView(self.drivers[1])
+        message_from_sender = "Message sender"
+        message_from_receiver = "Message receiver"
+        home_1, home_2 = device_1.create_user(), device_2.create_user()
+
+        device_1.just_fyi('Both devices join to 1-1 chat')
+        device_2_public_key = home_2.get_public_key_and_username()
+        device_1_profile = home_1.profile_button.click()
+        device_1_username = device_1_profile.default_username_text.text
+        home_1.home_button.click()
+
+        device_1.just_fyi("1-1 chat: sender adds receiver and send a message")
+        device_1_chat = home_1.add_contact(device_2_public_key)
+        device_1_chat.send_message(message_from_sender)
+        device_1_chat.chat_element_by_text(message_from_sender).long_press_element()
+        if device_1_chat.view_profile_button.is_element_displayed():
+            self.errors.append('1-1 chat: "view profile" is shown on long tap on sent message')
+        device_1_chat.get_back_to_home_view()
+
+        device_2.just_fyi("1-1 chat: receiver verifies that can open sender profile on long tap on message")
+        home_2.home_button.click()
+        device_2_chat_item = home_2.get_chat(device_1_username)
+        device_2_chat_item.wait_for_visibility_of_element(20)
+        device_2_chat = device_2_chat_item.click()
+        device_2_chat.view_profile_long_press(message_from_sender)
+        if not device_2_chat.profile_add_to_contacts.is_element_displayed():
+            self.errors.append('1-1 chat: another user profile is not opened on long tap on received message')
+        device_2_chat.get_back_to_home_view()
+
+        device_1.just_fyi('Public chat: send message and verify that user profile can be opened on long press on message')
+        chat_name = device_1.get_random_chat_name()
+        for home in home_1, home_2:
+            home.join_public_chat(chat_name)
+        chat_public_1, chat_public_2 = home_1.get_chat_view(), home_2.get_chat_view()
+        chat_public_2.send_message(message_from_receiver)
+        chat_public_2.chat_element_by_text(message_from_receiver).long_press_element()
+        if chat_public_2.view_profile_button.is_element_displayed():
+            self.errors.append('Public chat: "view profile" is shown on long tap on sent message')
+        chat_public_1.view_profile_long_press(message_from_receiver)
+        if not chat_public_1.remove_from_contacts.is_element_displayed():
+            self.errors.append('Public chat: another user profile is not opened on long tap on received message')
 
         self.errors.verify_no_errors()

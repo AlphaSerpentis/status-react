@@ -2,13 +2,14 @@
   (:require [clojure.string :as string]
             [re-frame.core :as re-frame]
             [status-im.i18n :as i18n]
-            [status-im.ui.screens.navigation :as navigation]
+            [status-im.navigation :as navigation]
             [status-im.utils.fx :as fx]
             [status-im.hardwallet.common :as common]
             [status-im.hardwallet.mnemonic :as mnemonic]
             [taoensso.timbre :as log]
             status-im.hardwallet.fx
-            [status-im.ui.components.react :as react]))
+            [status-im.ui.components.react :as react]
+            [status-im.constants :as constants]))
 
 (fx/defn begin-setup-button-pressed
   {:keys [:hardwallet.ui/begin-setup-button-pressed]}
@@ -82,7 +83,7 @@
 (fx/defn recovery-phrase-learn-more-pressed
   {:events [:keycard.onboarding.recovery-phrase.ui/learn-more-pressed]}
   [_]
-  (.openURL react/linking "https://keycard.status.im"))
+  (.openURL ^js react/linking constants/keycard-integration-link))
 
 (fx/defn recovery-phrase-next-pressed
   {:events [:keycard.onboarding.recovery-phrase.ui/next-pressed
@@ -158,7 +159,7 @@
       (if (= (:view-id db) :keycard-onboarding-recovery-phrase-confirm-word1)
         (fx/merge cofx
                   (recovery-phrase-next-word)
-                  (navigation/navigate-replace-cofx :keycard-onboarding-recovery-phrase-confirm-word2 nil))
+                  (navigation/navigate-replace :keycard-onboarding-recovery-phrase-confirm-word2 nil))
         (proceed-with-generating-key cofx))
       {:db (assoc-in db [:hardwallet :recovery-phrase :confirm-error] (i18n/label :t/wrong-word))})))
 
@@ -215,24 +216,6 @@
         (show-recover-confirmation))
       {:db (assoc-in db [:hardwallet :recovery-phrase :confirm-error] (i18n/label :t/wrong-word))})))
 
-(fx/defn card-ready-next-button-pressed
-  {:events [:hardwallet.ui/card-ready-next-button-pressed]}
-  [{:keys [db] :as cofx}]
-  (log/debug "[hardwallet] card-ready-next-button-pressed")
-  (let [pin (get-in db [:hardwallet :secrets :pin])
-        pin-already-set? (boolean pin)]
-    (if pin-already-set?
-      (if (= (get-in db [:hardwallet :flow]) :create)
-        (mnemonic/load-generating-mnemonic-screen cofx)
-        {:db (assoc-in db [:hardwallet :setup-step] :recovery-phrase)})
-      (fx/merge cofx
-                {:db (-> db
-                         (assoc-in [:hardwallet :setup-step] :pin)
-                         (assoc-in [:hardwallet :pin :enter-step] :current)
-                         (assoc-in [:hardwallet :pin :on-verified] :hardwallet/proceed-to-generate-mnemonic)
-                         (assoc-in [:hardwallet :pin :current] [])
-                         (assoc-in [:hardwallet :pin :original] nil))}))))
-
 (fx/defn recovery-phrase-next-button-pressed
   [{:keys [db] :as cofx}]
   (if (= (get-in db [:hardwallet :flow]) :create)
@@ -255,7 +238,7 @@
                                                     (update-in [:hardwallet :secrets] merge secrets'))}
               (common/hide-connection-sheet)
               (common/listen-to-hardware-back-button)
-              (navigation/navigate-replace-cofx :keycard-onboarding-puk-code nil))))
+              (navigation/navigate-replace :keycard-onboarding-puk-code nil))))
 
 (fx/defn on-install-applet-and-init-card-error
   {:events [:hardwallet.callback/on-install-applet-and-init-card-error
@@ -270,19 +253,27 @@
 (fx/defn generate-and-load-key
   {:events [:hardwallet/generate-and-load-key]}
   [{:keys [db] :as cofx}]
-  (let [{:keys [mnemonic pairing pin]}      (get-in db [:hardwallet :secrets])
-        {:keys [selected-id multiaccounts]} (:intro-wizard db)
-        user-selected-mnemonic              (->> multiaccounts
-                                                 (filter #(= (:id %) selected-id))
-                                                 first
-                                                 :mnemonic)
-        recovery-mnemonic                   (get-in db [:intro-wizard :passphrase])
-        mnemonic'                           (or user-selected-mnemonic mnemonic recovery-mnemonic)
-        pin'                                (or pin (common/vector->string (get-in db [:hardwallet :pin :current])))]
+  (let [{:keys [pairing pin]}
+        (get-in db [:hardwallet :secrets])
+
+        {:keys [selected-id multiaccounts]}
+        (:intro-wizard db)
+
+        multiaccount      (or (->> multiaccounts
+                                   (filter #(= (:id %) selected-id))
+                                   first)
+                              (assoc (get-in db [:intro-wizard :root-key])
+                                     :derived
+                                     (get-in db [:intro-wizard :derived])))
+        recovery-mnemonic (get-in db [:intro-wizard :passphrase])
+        mnemonic          (or (:mnemonic multiaccount)
+                              recovery-mnemonic)
+        pin'              (or pin (common/vector->string (get-in db [:hardwallet :pin :current])))]
     (fx/merge cofx
-              {:hardwallet/generate-and-load-key {:mnemonic mnemonic'
-                                                  :pairing  pairing
-                                                  :pin      pin'}})))
+              {:hardwallet/generate-and-load-key
+               {:mnemonic     mnemonic
+                :pairing      pairing
+                :pin          pin'}})))
 
 (fx/defn begin-setup-pressed
   {:events [:keycard.onboarding.intro.ui/begin-setup-pressed]}

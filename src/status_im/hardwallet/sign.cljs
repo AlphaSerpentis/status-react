@@ -2,7 +2,9 @@
   (:require [clojure.string :as string]
             [re-frame.core :as re-frame]
             [status-im.ethereum.core :as ethereum]
+            [status-im.ethereum.json-rpc :as json-rpc]
             [status-im.utils.fx :as fx]
+            [status-im.utils.money :as money]
             [status-im.utils.types :as types]
             [taoensso.timbre :as log]
             [status-im.hardwallet.common :as common]))
@@ -10,13 +12,20 @@
 (fx/defn sign
   {:events [:hardwallet/sign]}
   [{:keys [db] :as cofx}]
-  (let [card-connected?                   (get-in db [:hardwallet :card-connected?])
-        pairing                           (common/get-pairing db)
-        multiaccount-keycard-instance-uid (get-in db [:multiaccount :keycard-instance-uid])
-        instance-uid                      (get-in db [:hardwallet :application-info :instance-uid])
-        keycard-match?                    (= multiaccount-keycard-instance-uid instance-uid)
-        hash                              (get-in db [:hardwallet :hash])
-        pin                               (common/vector->string (get-in db [:hardwallet :pin :sign]))]
+  (let [card-connected?      (get-in db [:hardwallet :card-connected?])
+        pairing              (common/get-pairing db)
+        keycard-instance-uid (get-in db [:multiaccount :keycard-instance-uid])
+        instance-uid         (get-in db [:hardwallet :application-info :instance-uid])
+        keycard-match?       (= keycard-instance-uid instance-uid)
+        hash                 (get-in db [:hardwallet :hash])
+        pin                  (common/vector->string (get-in db [:hardwallet :pin :sign]))
+        from                 (get-in db [:signing/tx :from :address])
+        path                 (reduce
+                              (fn [_ {:keys [address path]}]
+                                (when (= from address)
+                                  (reduced path)))
+                              nil
+                              (:multiaccount/accounts db))]
     (if (and card-connected?
              keycard-match?)
       {:db              (-> db
@@ -24,7 +33,8 @@
                             (assoc-in [:hardwallet :pin :status] :verifying))
        :hardwallet/sign {:hash    (ethereum/naked-address hash)
                          :pairing pairing
-                         :pin     pin}}
+                         :pin     pin
+                         :path    path}}
       (fx/merge cofx
                 {:db (assoc-in db [:signing/sign :keycard-step] :signing)}
                 (common/set-on-card-connected :hardwallet/sign)
@@ -73,6 +83,55 @@
    (common/clear-on-card-connected)
    (common/get-application-info (common/get-pairing db) nil)
    (common/hide-connection-sheet)))
+
+(fx/defn sign-typed-data
+  {:events [:hardwallet/sign-typed-data]}
+  [{:keys [db] :as cofx}]
+  (let [card-connected? (get-in db [:hardwallet :card-connected?])
+        hash (get-in db [:hardwallet :hash])]
+    (if card-connected?
+      {:db                      (-> db
+                                    (assoc-in [:hardwallet :card-read-in-progress?] true)
+                                    (assoc-in [:signing/sign :keycard-step] :signing))
+       :hardwallet/sign-typed-data {:hash (ethereum/naked-address hash)}}
+      (fx/merge cofx
+                (common/set-on-card-connected :hardwallet/sign-typed-data)
+                {:db (assoc-in db [:signing/sign :keycard-step] :signing)}))))
+
+(fx/defn fetch-currency-symbol-on-success
+  {:events [:hardwallet/fetch-currency-symbol-on-success]}
+  [{:keys [db] :as cofx} currency]
+  {:db (assoc-in db [:signing/sign :formatted-data :message :formatted-currency] currency)})
+
+(fx/defn fetch-currency-decimals-on-success
+  {:events [:hardwallet/fetch-currency-decimals-on-success]}
+  [{:keys [db] :as cofx} decimals]
+  {:db (update-in db [:signing/sign :formatted-data :message]
+                  #(assoc % :formatted-amount (.dividedBy ^js (money/bignumber (:amount %))
+                                                          (money/bignumber (money/from-decimal decimals)))))})
+
+(fx/defn store-hash-and-sign-typed
+  {:events [:hardwallet/store-hash-and-sign-typed]}
+  [{:keys [db] :as cofx} result]
+  (let [{:keys [result error]} (types/json->clj result)
+        message (get-in db [:signing/sign :formatted-data :message])
+        currency-contract (:currency message)]
+    (when-not (or (:receiver message) (:code message))
+      (json-rpc/eth-call {:contract currency-contract
+                          :method "decimals()"
+                          :outputs ["uint8"]
+                          :on-success  (fn [[decimals]]
+                                         (re-frame/dispatch [:hardwallet/fetch-currency-decimals-on-success decimals]))})
+
+      (json-rpc/eth-call {:contract currency-contract
+                          :method "symbol()"
+                          :outputs ["string"]
+                          :on-success (fn [[currency]]
+                                        (re-frame/dispatch [:hardwallet/fetch-currency-symbol-on-success currency]))}))
+
+    (fx/merge cofx
+              {:db (assoc-in db [:hardwallet :hash] result)}
+              sign-typed-data)))
 
 (fx/defn prepare-to-sign
   {:events [:hardwallet/prepare-to-sign]}
@@ -129,17 +188,21 @@
   {:events [:hardwallet.callback/on-sign-error]}
   [{:keys [db] :as cofx} error]
   (log/debug "[hardwallet] sign error: " error)
-  (let [tag-was-lost? (common/tag-lost? (:error error))]
+  (let [tag-was-lost? (common/tag-lost? (:error error))
+        pin-retries (get-in db [:hardwallet :application-info :pin-retry-counter])]
     (when-not tag-was-lost?
       (if (re-matches common/pin-mismatch-error (:error error))
         (fx/merge cofx
                   {:db (-> db
+                           (assoc-in [:hardwallet :application-info :pin-retry-counter] (dec pin-retries))
                            (update-in [:hardwallet :pin] merge {:status      :error
                                                                 :sign        []
                                                                 :error-label :t/pin-mismatch})
                            (assoc-in [:signing/sign :keycard-step] :pin))}
                   (common/hide-connection-sheet)
-                  (common/get-application-info (common/get-pairing db) nil))
+                  (common/get-application-info (common/get-pairing db) nil)
+                  (when (zero? (dec pin-retries))
+                    (common/frozen-keycard-popup)))
         (fx/merge cofx
                   (common/hide-connection-sheet)
                   (common/show-wrong-keycard-alert true))))))

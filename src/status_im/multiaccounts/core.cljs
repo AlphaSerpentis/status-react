@@ -5,11 +5,10 @@
             [status-im.native-module.core :as native-module]
             [status-im.notifications.core :as notifications]
             [status-im.utils.fx :as fx]
-            [status-im.utils.handlers]
             [status-im.utils.gfycat.core :as gfycat]
             [status-im.utils.identicon :as identicon]
-            [status-im.ui.components.colors :as colors]
-            [status-im.utils.theme :as theme]))
+            [status-im.utils.theme :as utils.theme]
+            [status-im.theme.core :as theme]))
 
 (defn displayed-name
   "Use preferred name, name or alias in that order"
@@ -38,11 +37,6 @@
  ::blank-preview-flag-changed
  (fn [flag]
    (native-module/set-blank-preview-flag flag)))
-
-(defn- chat-send? [transaction]
-  (and (seq transaction)
-       (not (:in-progress? transaction))
-       (:from-chat? transaction)))
 
 (fx/defn confirm-wallet-set-up
   [cofx]
@@ -101,11 +95,11 @@
 
 (re-frame/reg-fx
  ::switch-theme
- (fn [theme]
-   (colors/set-theme
-    (if (or (= 2 theme) (and (= 0 theme) (theme/is-dark-mode)))
-      :dark
-      :light))))
+ (fn [theme-id]
+   (let [theme (if (or (= 2 theme-id) (and (= 0 theme-id) (utils.theme/is-dark-mode)))
+                 :dark
+                 :light)]
+     (theme/change-theme theme))))
 
 (fx/defn switch-appearance
   {:events [:multiaccounts.ui/appearance-switched]}

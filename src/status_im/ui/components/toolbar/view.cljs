@@ -1,17 +1,12 @@
 (ns status-im.ui.components.toolbar.view
-  (:require-macros [status-im.utils.views :refer [defview letsubs]])
   (:require [re-frame.core :as re-frame]
-            [status-im.i18n :as i18n]
+            [status-im.ui.components.colors :as colors]
             [status-im.ui.components.icons.vector-icons :as vector-icons]
             [status-im.ui.components.list-selection :as list-selection]
             [status-im.ui.components.react :as react]
-            [status-im.ui.components.styles :as components.styles]
             [status-im.ui.components.toolbar.actions :as actions]
             [status-im.ui.components.toolbar.styles :as styles]
-            [status-im.utils.platform :as platform]
-            [status-im.utils.core :as utils]
-            [status-im.ui.components.colors :as colors]
-            [status-im.ui.components.common.common :as components.common]))
+            [status-im.utils.core :as utils]))
 
 ;; Navigation item
 
@@ -38,20 +33,10 @@
                                   props)
      text]]))
 
-(defn nav-clear-text
-  ([text] (nav-clear-text nil text))
-  ([props text]
-   (nav-text (merge props styles/item-text-white-background) text)))
-
-(def nav-back-home [nav-button actions/home-back])
 (def default-nav-back [nav-button actions/default-back])
 (def default-nav-close [nav-button actions/default-close])
 
 ;; Content
-
-(defn content-wrapper [content]
-  [react/view {:style {:flex 1}}
-   content])
 
 (defn content-title
   ([title] (content-title nil title))

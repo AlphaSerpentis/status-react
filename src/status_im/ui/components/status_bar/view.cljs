@@ -3,7 +3,8 @@
             [status-im.ui.components.status-bar.styles :as styles]
             [status-im.utils.platform :as platform]))
 
-(def route->bar-type (merge {:qr-scanner {:type :black}}
+(def route->bar-type (merge {:qr-scanner {:type :black}
+                             :image-preview {:type :black}}
                             (when platform/ios?
                               {:new-chat        {:type :black}
                                :new-public-chat {:type :black}})))
@@ -33,14 +34,14 @@
           :black (styles/status-bar-black)
           (styles/status-bar-default))]
     (when bar-style
-      (.setBarStyle react/status-bar-class (clj->js bar-style)) true)
+      (.setBarStyle ^js react/status-bar-class (clj->js bar-style)) true)
     (when (and background-color platform/android?)
-      (.setBackgroundColor react/status-bar-class (clj->js background-color)))
+      (.setBackgroundColor ^js react/status-bar-class (clj->js background-color)))
     (when hidden
-      (.setHidden react/status-bar-class (clj->js hidden)))
+      (.setHidden ^js react/status-bar-class (clj->js hidden)))
     (when network-activity-indicator-visible
       (.setNetworkActivityIndicatorVisible
-       react/status-bar-class
+       ^js react/status-bar-class
        (clj->js network-activity-indicator-visible)))
     (when translucent
-      (.setTranslucent react/status-bar-class (clj->js translucent)))))
+      (.setTranslucent ^js react/status-bar-class (clj->js translucent)))))

@@ -1,11 +1,9 @@
-(ns status-im.group-chats.db
-  (:require [status-im.chat.models :as models.chat]
-            [status-im.multiaccounts.core :as multiaccounts]))
+(ns status-im.group-chats.db)
 
 (def members-added-type 3)
 
 (defn joined?
-  [public-key {:keys [members-joined] :as chat}]
+  [public-key {:keys [members-joined]}]
   (contains? members-joined public-key))
 
 (defn invited?
@@ -22,20 +20,5 @@
                  from)))
        first))
 
-(defn get-pending-invite-inviter-name
-  "when the chat is a private group chat in which the user has been
-  invited and didn't accept the invitation yet, return inviter-name"
-  [contacts chat my-public-key]
-  (when (and (models.chat/group-chat? chat)
-             (invited? my-public-key chat)
-             (not (joined? my-public-key chat)))
-    (let [inviter-pk (get-inviter-pk my-public-key chat)]
-      (multiaccounts/displayed-name (or (get contacts inviter-pk) {:public-key inviter-pk})))))
-
-(defn get-inviter-name
-  "when the chat is a private group chat in which the user has been
-  invited and didn't accept the invitation yet, return inviter-name"
-  [contacts chat my-public-key]
-  (when (models.chat/group-chat? chat)
-    (let [inviter-pk (get-inviter-pk my-public-key chat)]
-      (multiaccounts/displayed-name (or (get contacts inviter-pk) {:public-key inviter-pk})))))
+(defn group-chat? [chat]
+  (and (:group-chat chat) (not (:public? chat))))

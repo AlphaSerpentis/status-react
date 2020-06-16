@@ -21,19 +21,18 @@
   (:require [clojure.string :as string]
             [reagent.core :as reagent]
             [status-im.i18n :as i18n]
-            [status-im.ui.components.animation :as animation]
             [status-im.ui.components.checkbox.view :as checkbox]
             [status-im.ui.components.colors :as colors]
             [status-im.ui.components.icons.vector-icons :as vector-icons]
             [status-im.ui.components.list-item.views :as list-item]
             [status-im.ui.components.list.styles :as styles]
+            [status-im.ui.components.radio :as radio]
             [status-im.ui.components.react :as react]
             [status-im.utils.platform :as platform]
-            [status-im.ui.components.radio :as radio])
-  (:require-macros [status-im.utils.views :as views]))
+            ["react-native" :as react-native]))
 
-(def flat-list-class (react/get-class "FlatList"))
-(def section-list-class (react/get-class "SectionList"))
+(def flat-list-class (reagent/adapt-react-class (.-FlatList react-native)))
+(def section-list-class (reagent/adapt-react-class (.-SectionList react-native)))
 
 ;;TODO THIS NAMESPACE is DEPRECATED, use status-im.ui.components.list-item.views
 ;;TODO DEPRECATED, use status-im.ui.components.list-item.views
@@ -113,19 +112,13 @@
          [react/view {:style (merge style styles/item-checkbox)}
           [radio/radio (:checked? props)]])])
 
-(def item-icon-forward
-  [item-icon {:icon      :main-icons/next
-              :style     {:width 12}
-              :icon-opts {:color colors/white}}])
-
 ;;TODO DEPRECATED, use status-im.ui.components.list-item.views
 (defn big-list-item
-  [{:keys [style text text-color text-style subtext value action-fn active? destructive? hide-chevron?
+  [{:keys [style text text-style subtext action-fn active? hide-chevron?
            accessory-value text-color new? activity-indicator
-           accessibility-label icon icon-color image-source icon-content]
+           accessibility-label icon icon-color image-source]
     :or   {icon-color colors/blue
            text-color colors/black
-           value ""
            active? true
            style {}}}]
   {:pre [text
@@ -171,7 +164,7 @@
       [vector-icons/icon :main-icons/next {:color colors/gray-transparent-40}])]])
 
 (defn- wrap-render-fn [f]
-  (fn [data]
+  (fn [^js data]
     (reagent/as-element (f (.-item data) (.-index data) (.-separators data)))))
 
 (defn- wrap-key-fn [f]
@@ -182,10 +175,6 @@
 (def base-separator [react/view styles/base-separator])
 
 (def default-separator [react/view styles/separator])
-
-(def default-header [react/view styles/list-header-footer-spacing])
-
-(def default-footer [react/view styles/list-header-footer-spacing])
 
 (defn- base-list-props
   [{:keys [key-fn render-fn empty-component header footer separator default-separator?]}]
@@ -224,8 +213,8 @@
     :else          [item]))
 
 (defn- wrap-render-section-header-fn [f]
-  (fn [data]
-    (let [section (.-section data)]
+  (fn [^js data]
+    (let [^js section (.-section data)]
       (reagent/as-element (f {:title (.-title section)
                               :data  (.-data section)})))))
 
@@ -258,10 +247,3 @@
           {:sections            (clj->js (map wrap-per-section-render-fn sections))
            :renderSectionHeader (wrap-render-section-header-fn render-section-header-fn)
            :style               style})])
-
-;;TODO DEPRECATED, use status-im.ui.components.list-item.views
-(defn list-with-label [{:keys [style]} label list]
-  [react/view (merge styles/list-with-label-wrapper style)
-   [react/text {:style styles/label}
-    label]
-   list])

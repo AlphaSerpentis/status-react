@@ -1,21 +1,16 @@
 (ns status-im.ui.components.webview
   (:require [reagent.core :as reagent]
-            [status-im.react-native.js-dependencies :as js-dependencies]
-            [reagent.core :as reagent.core]
+            [status-im.utils.config :as config]
             [status-im.utils.platform :as platform]
-            [status-im.utils.config :as config]))
+            ["react-native-webview" :default rn-webview]))
 
 (def webview-class
-  (memoize
-   (fn []
-     (reagent/adapt-react-class (.-default js-dependencies/webview)))))
+  (reagent/adapt-react-class rn-webview))
 
-(defn module [] (.-WebViewModule (.-NativeModules js-dependencies/react-native)))
-
-(defn webview [{:keys [dapp? dapp-name] :as opts}]
+(defn webview [{:keys [dapp?] :as opts}]
   (if (and config/cached-webviews-enabled? platform/android? dapp?)
-    (reagent.core/create-class
-     (let [dapp-name-sent? (reagent.core/atom false)]
+    (reagent/create-class
+     (let [dapp-name-sent? (reagent/atom false)]
        {:component-did-mount
         (fn []
           ;; unfortunately it's impossible to pass some initial params
@@ -26,5 +21,5 @@
         :reagent-render
         (fn [opts]
           (when @dapp-name-sent?
-            [(webview-class) opts]))}))
-    [(webview-class) opts]))
+            [webview-class opts]))}))
+    [webview-class opts]))

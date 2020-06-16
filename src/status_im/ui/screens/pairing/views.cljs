@@ -12,7 +12,7 @@
             [status-im.ui.components.checkbox.view :as checkbox.views]
             [status-im.ui.components.list.views :as list]
             [status-im.ui.components.react :as react]
-            [status-im.ui.components.text-input.view :as text-input]
+            [quo.core :as quo]
             [status-im.ui.screens.pairing.styles :as styles]
             [status-im.ui.components.topbar :as topbar]))
 
@@ -73,20 +73,6 @@
                    :accessibility-label :advertise-device} (i18n/label :t/pair-this-device)]]
      [react/view
       [react/text (i18n/label :t/pair-this-device-description)]]]]])
-
-(defn sync-devices []
-  [react/touchable-highlight {:on-press synchronize-installations!
-                              :style styles/pair-this-device}
-   [react/view {:style styles/pair-this-device-actions}
-    [react/view
-     [react/view (styles/pairing-button true)
-      [icons/icon :main-icons/wnode (icon-style (styles/pairing-button-icon true))]]]
-    [react/view {:style styles/pairing-actions-text}
-     [react/view
-      [react/text {:style styles/pair-this-device-title}
-       (if @syncing
-         (i18n/label :t/syncing-devices)
-         (i18n/label :t/sync-all-devices))]]]]])
 
 (defn your-device [{:keys [installation-id name device-type]}]
   [react/view {:style styles/installation-item}
@@ -152,15 +138,13 @@
   [react/keyboard-avoiding-view styles/edit-installation
    [react/scroll-view {:keyboard-should-persist-taps :handled}
     [react/view
-     [react/text (i18n/label :t/pairing-please-set-a-name)]]
-    [text-input/text-input-with-label
-     {:placeholder     (i18n/label :t/specify-name)
-      :style               styles/input
-      :accessibility-label :device-name
-      :container           styles/input-container
-      :default-value       @installation-name
-      :on-change-text      #(reset! installation-name %)
-      :auto-focus          true}]]
+     [quo/text-input
+      {:placeholder         (i18n/label :t/specify-name)
+       :label               (i18n/label :t/pairing-please-set-a-name)
+       :accessibility-label :device-name
+       :default-value       @installation-name
+       :on-change-text      #(reset! installation-name %)
+       :auto-focus          true}]]]
    [react/view styles/bottom-container
     [react/view components.styles/flex]
     [components.common/bottom-button
@@ -173,7 +157,7 @@
 
 (defn info-section []
   [react/view {:style styles/info-section}
-   [react/touchable-highlight {:on-press #(.openURL react/linking "https://status.im/tutorials/pairing.html")}
+   [react/touchable-highlight {:on-press #(.openURL ^js react/linking "https://status.im/tutorials/pairing.html")}
     [react/text {:style styles/info-section-text} (i18n/label :t/learn-more)]]])
 
 (defn installations-list [installations]

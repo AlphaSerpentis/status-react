@@ -1,22 +1,13 @@
-(ns status-im.pairing.core (:require [clojure.string :as string]
-                                     [re-frame.core :as re-frame]
-                                     [status-im.chat.models :as models.chat]
-                                     [status-im.waku.core :as waku]
-                                     [status-im.contact.core :as contact]
-                                     [status-im.contact.db :as contact.db]
-                                     [taoensso.timbre :as log]
-                                     [status-im.ethereum.json-rpc :as json-rpc]
-                                     [status-im.i18n :as i18n]
-                                     [status-im.multiaccounts.model :as multiaccounts.model]
-                                     [status-im.multiaccounts.update.core :as multiaccounts.update]
-                                     [status-im.transport.message.protocol :as protocol]
-                                     [status-im.ui.screens.navigation :as navigation]
-                                     [status-im.utils.config :as config]
-                                     [status-im.utils.fx :as fx]
-                                     [status-im.utils.identicon :as identicon]
-                                     [status-im.utils.pairing :as pairing.utils]
-                                     [status-im.utils.platform :as utils.platform]
-                                     [status-im.utils.types :as types]))
+(ns status-im.pairing.core
+  (:require [re-frame.core :as re-frame]
+            [status-im.ethereum.json-rpc :as json-rpc]
+            [status-im.i18n :as i18n]
+            [status-im.navigation :as navigation]
+            [status-im.utils.config :as config]
+            [status-im.utils.fx :as fx]
+            [status-im.utils.platform :as utils.platform]
+            [status-im.waku.core :as waku]
+            [taoensso.timbre :as log]))
 
 (defn enable-installation-rpc [waku-enabled? installation-id on-success on-failure]
   (json-rpc/call {:method (json-rpc/call-ext-method waku-enabled? "enableInstallation")
@@ -98,18 +89,6 @@
 
 (fx/defn init [cofx]
   {:pairing/get-our-installations (waku/enabled? cofx)})
-
-(defn handle-bundles-added [{:keys [db] :as cofx} bundle]
-  (let [installation-id  (:installationID bundle)]
-    (when
-     (and (= (:identity bundle)
-             (multiaccounts.model/current-public-key cofx))
-          (not= (get-in db [:multiaccount :installation-id]) installation-id))
-      (fx/merge cofx
-                (init)
-                #(when-not (or (:pairing/prompt-user-pop-up db)
-                               (= :installations (:view-id db)))
-                   (prompt-user-on-new-installation %))))))
 
 (fx/defn enable [{:keys [db]} installation-id]
   {:db (assoc-in db
@@ -216,8 +195,12 @@
                   :name (:name metadata)
                   :device-type (:deviceType metadata))})
 
-(fx/defn handle-installation [{:keys [db]} {:keys [id] :as i}]
-  {:db (assoc-in db [:pairing/installations id] (installation<-rpc i))})
+(fx/defn handle-installations [{:keys [db]} installations]
+  {:db (update db :pairing/installations #(reduce
+                                           (fn [acc {:keys [id] :as i}]
+                                             (update acc id merge (installation<-rpc i)))
+                                           %
+                                           installations))})
 
 (fx/defn load-installations [{:keys [db]} installations]
   {:db (assoc db :pairing/installations (reduce

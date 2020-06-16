@@ -1,22 +1,18 @@
 (ns status-im.wallet.core
-  (:require [clojure.set :as set]
-            [re-frame.core :as re-frame]
+  (:require [re-frame.core :as re-frame]
             [status-im.multiaccounts.update.core :as multiaccounts.update]
             [status-im.constants :as constants]
             [status-im.waku.core :as waku]
-            [status-im.chat.models.message :as chat.message]
             [status-im.ethereum.core :as ethereum]
             [status-im.ethereum.eip55 :as eip55]
             [status-im.ethereum.json-rpc :as json-rpc]
             [status-im.ethereum.tokens :as tokens]
             [status-im.i18n :as i18n]
-            [status-im.ui.screens.navigation :as navigation]
-            [status-im.wallet.utils :as wallet.utils]
+            [status-im.navigation :as navigation]
             [status-im.utils.config :as config]
             [status-im.utils.core :as utils.core]
             [status-im.utils.fx :as fx]
             [status-im.utils.money :as money]
-            [status-im.utils.prices :as prices]
             [status-im.utils.utils :as utils.utils]
             [taoensso.timbre :as log]
             [status-im.wallet.db :as wallet.db]
@@ -26,7 +22,8 @@
             [status-im.contact.db :as contact.db]
             [status-im.ethereum.ens :as ens]
             [status-im.ethereum.stateofus :as stateofus]
-            [status-im.ui.components.bottom-sheet.core :as bottom-sheet]))
+            [status-im.ui.components.bottom-sheet.core :as bottom-sheet]
+            [status-im.wallet.prices :as prices]))
 
 (defn get-balance
   [{:keys [address on-success on-error]}]
@@ -46,28 +43,8 @@
        :on-success #(re-frame/dispatch [::update-balance-success address %])
        :on-error   #(re-frame/dispatch [::update-balance-fail %])}))))
 
-;; TODO(oskarth): At some point we want to get list of relevant
-;; assets to get prices for
-(re-frame/reg-fx
- :wallet/get-prices
- (fn [{:keys [from to mainnet? success-event error-event chaos-mode?]}]
-   (prices/get-prices from
-                      to
-                      mainnet?
-                      #(re-frame/dispatch [success-event %])
-                      #(re-frame/dispatch [error-event %])
-                      chaos-mode?)))
-
 (defn assoc-error-message [db error-type err]
   (assoc-in db [:wallet :errors error-type] (or err :unknown-error)))
-
-(fx/defn on-update-prices-fail
-  {:events [::update-prices-fail]}
-  [{:keys [db]} err]
-  (log/debug "Unable to get prices: " err)
-  {:db (-> db
-           (assoc-error-message :prices-update :error-unable-to-get-prices)
-           (assoc :prices-loading? false))})
 
 (fx/defn on-update-balance-fail
   {:events [::update-balance-fail]}
@@ -84,8 +61,10 @@
            (assoc-error-message :balance-update :error-unable-to-get-token-balance))})
 
 (fx/defn open-transaction-details
-  [{:keys [db] :as cofx} hash address]
-  (navigation/navigate-to-cofx cofx :wallet-transaction-details {:hash hash :address address}))
+  [cofx hash address]
+  (navigation/navigate-to-cofx cofx :wallet-stack {:screen  :wallet-transaction-details
+                                                   :initial false
+                                                   :params  {:hash hash :address address}}))
 
 (defn- validate-token-name!
   [{:keys [address symbol name]}]
@@ -95,7 +74,7 @@
     :outputs ["string"]
     :on-success
     (fn [[contract-name]]
-      (when (and (not (empty? contract-name))
+      (when (and (seq contract-name)
                  (not= name contract-name))
         (let [message (i18n/label :t/token-auto-validate-name-error
                                   {:symbol   symbol
@@ -114,7 +93,7 @@
     :on-success
     (fn [[contract-symbol]]
       ;;NOTE(goranjovic): skipping check if field not set in contract
-      (when (and (not (empty? contract-symbol))
+      (when (and (seq contract-symbol)
                  (not= (clojure.core/name symbol) contract-symbol))
         (let [message (i18n/label :t/token-auto-validate-symbol-error
                                   {:symbol   symbol
@@ -196,14 +175,6 @@
  :wallet/get-tokens-balances
  get-token-balances)
 
-(defn clear-error-message [db error-type]
-  (update-in db [:wallet :errors] dissoc error-type))
-
-(defn tokens-symbols
-  [visible-token-symbols all-tokens chain]
-  (set/difference (set visible-token-symbols)
-                  (set (map :symbol (tokens/nfts-for all-tokens chain)))))
-
 (defn rpc->token [tokens]
   (reduce (fn [acc {:keys [address] :as token}]
             (assoc acc
@@ -213,21 +184,14 @@
           tokens))
 
 (fx/defn initialize-tokens
-  [{:keys [db] :as cofx} custom-tokens]
-  (let [chain         (ethereum/chain-keyword db)
-        custom-tokens {chain (rpc->token custom-tokens)}
-        ;;TODO why do we need all tokens ? chain can be changed only through relogin
-        all-tokens    (merge-with
-                       merge
-                       (utils.core/map-values #(utils.core/index-by :address %)
-                                              tokens/all-default-tokens)
-                       custom-tokens)]
-    (fx/merge
-     cofx
-     (merge
-      {:db (assoc db :wallet/all-tokens all-tokens)}
-      (when config/erc20-contract-warnings-enabled?
-        {:wallet/validate-tokens (get tokens/all-default-tokens chain)})))))
+  [{:keys [db]} custom-tokens]
+  (let [default-tokens (utils.core/index-by :address (get tokens/all-default-tokens
+                                                          (ethereum/chain-keyword db)))
+        all-tokens     (merge default-tokens (rpc->token custom-tokens))]
+    (merge
+     {:db (assoc db :wallet/all-tokens all-tokens)}
+     (when config/erc20-contract-warnings-enabled?
+       {:wallet/validate-tokens default-tokens}))))
 
 (fx/defn update-balances
   [{{:keys [network-status :wallet/all-tokens
@@ -239,7 +203,7 @@
         assets    (get visible-tokens chain)
         init?     (or (empty? assets)
                       (= assets (constants/default-visible-tokens chain)))
-        tokens    (->> (tokens/tokens-for all-tokens chain)
+        tokens    (->> (vals all-tokens)
                        (remove #(or (:hidden? %)
                                     ;;if not init remove not visible tokens
                                     (and (not init?)
@@ -255,51 +219,18 @@
                                      :tokens    tokens
                                      :assets    assets
                                      :init?     init?}
-        :db                         (clear-error-message db :balance-update)}
+        :db                         (prices/clear-error-message db :balance-update)}
        (when-not assets
          (multiaccounts.update/multiaccount-update
           :wallet/visible-tokens (assoc visible-tokens chain (or (constants/default-visible-tokens chain)
                                                                  #{}))
           {}))))))
 
-(fx/defn update-prices
-  [{{:keys [network-status :wallet/all-tokens]
-     {:keys [address currency chaos-mode? :wallet/visible-tokens]
-      :or {currency :usd}} :multiaccount :as db} :db}]
-  (let [chain       (ethereum/chain-keyword db)
-        mainnet?    (= :mainnet chain)
-        assets      (get visible-tokens chain #{})
-        tokens      (tokens-symbols assets all-tokens chain)
-        currency    (get constants/currencies currency)]
-    (when (not= network-status :offline)
-      {:wallet/get-prices
-       {:from          (if mainnet?
-                         (conj tokens "ETH")
-                         [(-> (tokens/native-currency chain)
-                              (wallet.utils/exchange-symbol))])
-        :to            [(:code currency)]
-        :mainnet?      mainnet?
-        :success-event ::update-prices-success
-        :error-event   ::update-prices-fail
-        :chaos-mode?   chaos-mode?}
-
-       :db
-       (-> db
-           (clear-error-message :prices-update)
-           (assoc :prices-loading? true))})))
-
 (defn- set-checked [tokens-id token-id checked?]
   (let [tokens-id (or tokens-id #{})]
     (if checked?
       (conj tokens-id token-id)
       (disj tokens-id token-id))))
-
-(fx/defn on-update-prices-success
-  {:events [::update-prices-success]}
-  [{:keys [db]} prices]
-  {:db (assoc db
-              :prices prices
-              :prices-loading? false)})
 
 (fx/defn update-balance
   {:events [::update-balance-success]}
@@ -356,16 +287,16 @@
                                              chain-visible-tokens)
                {})
               (update-tokens-balances balances)
-              (update-prices))))
+              (prices/update-prices))))
 
 (fx/defn add-custom-token
-  [{:keys [db] :as cofx} {:keys [symbol]}]
+  [cofx {:keys [symbol]}]
   (fx/merge cofx
             (update-toggle-in-settings symbol true)
             (update-balances nil)))
 
 (fx/defn remove-custom-token
-  [{:keys [db] :as cofx} {:keys [symbol]}]
+  [cofx {:keys [symbol]}]
   (update-toggle-in-settings cofx symbol false))
 
 (fx/defn set-and-validate-amount
@@ -380,7 +311,7 @@
 
 (fx/defn sign-transaction-button-clicked-from-chat
   {:events  [:wallet.ui/sign-transaction-button-clicked-from-chat]}
-  [{:keys [db] :as cofx} {:keys [to amount from token request? from-chat? gas gasPrice]}]
+  [{:keys [db] :as cofx} {:keys [to amount from token]}]
   (let [{:keys [symbol address]} token
         amount-hex (str "0x" (abi-spec/number-to-hex amount))
         to-norm (ethereum/normalized-hex (if (string? to) to (:address to)))
@@ -418,9 +349,8 @@
 
 (fx/defn request-transaction-button-clicked-from-chat
   {:events  [:wallet.ui/request-transaction-button-clicked]}
-  [{:keys [db] :as cofx} {:keys [to amount from token from-chat? gas gasPrice]}]
+  [{:keys [db] :as cofx} {:keys [to amount from token]}]
   (let [{:keys [symbol address]} token
-        to-norm (ethereum/normalized-hex (if (string? to) to (:address to)))
         from-address (:address from)
         identity (:current-chat-id db)]
     (fx/merge cofx
@@ -446,7 +376,7 @@
         chain (ethereum/network->chain-keyword current-network)
         {:keys [symbol decimals]}
         (if (seq contract)
-          (get (get all-tokens chain) contract)
+          (get all-tokens contract)
           (tokens/native-currency chain))
         amount-text (str (money/internal->formatted value symbol decimals))]
     {:db (assoc db :wallet/prepare-transaction
@@ -557,7 +487,7 @@
       ens-verified
       (assoc ::resolve-address
              {:registry (get ens/ens-registries chain)
-              :ens-name (if (= (.indexOf name ".") -1)
+              :ens-name (if (= (.indexOf ^js name ".") -1)
                           (stateofus/subdomain name)
                           name)
               ;;TODO handle errors and timeout for ens name resolution
@@ -608,7 +538,8 @@
   {:events [:wallet.send/qr-scanner-allowed]}
   [{:keys [db] :as cofx} options]
   (fx/merge cofx
-            {:db (assoc-in db [:wallet/prepare-transaction :modal-opened?] true)}
+            (when (:modal-opened? options)
+              {:db (assoc-in db [:wallet/prepare-transaction :modal-opened?] true)})
             (bottom-sheet/hide-bottom-sheet)
             (navigation/navigate-to-cofx :qr-scanner options)))
 

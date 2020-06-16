@@ -1,27 +1,30 @@
 (ns status-im.hardwallet.change-pin
   (:require [status-im.i18n :as i18n]
-            [status-im.ui.screens.navigation :as navigation]
+            [status-im.navigation :as navigation]
             [status-im.hardwallet.onboarding :as onboarding]
             [status-im.utils.fx :as fx]
             [taoensso.timbre :as log]
-            [status-im.hardwallet.common :as common]))
+            [status-im.hardwallet.common :as common]
+            [status-im.hardwallet.login :as hardwallet.login]))
 
 (fx/defn change-pin-pressed
   {:events [:keycard-settings.ui/change-pin-pressed]}
   [{:keys [db] :as cofx}]
   (let [pin-retry-counter (get-in db [:hardwallet :application-info :pin-retry-counter])
         enter-step (if (zero? pin-retry-counter) :puk :current)]
-    (fx/merge cofx
-              {:db
-               (assoc-in db [:hardwallet :pin] {:enter-step   enter-step
-                                                :current      []
-                                                :puk          []
-                                                :original     []
-                                                :confirmation []
-                                                :status       nil
-                                                :error-label  nil
-                                                :on-verified  :hardwallet/proceed-to-change-pin})}
-              (common/navigate-to-enter-pin-screen))))
+    (if (= enter-step :puk)
+      (hardwallet.login/reset-pin cofx)
+      (fx/merge cofx
+                {:db
+                 (assoc-in db [:hardwallet :pin] {:enter-step   enter-step
+                                                  :current      []
+                                                  :puk          []
+                                                  :original     []
+                                                  :confirmation []
+                                                  :status       nil
+                                                  :error-label  nil
+                                                  :on-verified  :hardwallet/proceed-to-change-pin})}
+                (common/navigate-to-enter-pin-screen)))))
 
 (fx/defn proceed-to-change-pin
   {:events [:hardwallet/proceed-to-change-pin]}

@@ -9,8 +9,8 @@
             [status-im.utils.fx :as fx]
             [status-im.utils.money :as money]
             [status-im.wallet.core :as wallet]
-            [status-im.ui.screens.navigation :as navigation]
-            [status-im.multiaccounts.update.core :as multiaccounts.update]))
+            [status-im.navigation :as navigation]
+            [status-im.wallet.prices :as prices]))
 
 (re-frame/reg-fx
  :wallet.custom-token/get-decimals
@@ -85,10 +85,9 @@
                          (string/trim %)]))))
 
 (defn field-exists?
-  [{:wallet/keys [all-tokens] :as db} field-key field-value]
-  (let [chain-key (ethereum/chain-keyword db)]
-    (some #(= field-value (get % field-key))
-          (vals (get all-tokens chain-key)))))
+  [{:wallet/keys [all-tokens]} field-key field-value]
+  (some #(= field-value (get % field-key))
+        (vals all-tokens)))
 
 (fx/defn total-supply-result
   [{:keys [db]} contract total-supply]
@@ -100,10 +99,8 @@
                         :error (i18n/label :t/wrong-contract)})}))
 
 (defn token-in-list?
-  [{:wallet/keys [all-tokens] :as db} contract]
-  (let [chain-key (ethereum/chain-keyword db)
-        addresses (set (map string/lower-case (keys (get all-tokens chain-key))))]
-    (not (nil? (get addresses (string/lower-case contract))))))
+  [{:wallet/keys [all-tokens]} contract]
+  (not (nil? (get all-tokens (string/lower-case contract)))))
 
 (fx/defn contract-address-is-changed
   [{:keys [db]} contract]
@@ -169,7 +166,6 @@
   {:events [:wallet.custom-token.ui/add-pressed]}
   [{:keys [db] :as cofx}]
   (let [{:keys [contract name symbol decimals]} (get db :wallet/custom-token-screen)
-        chain-key (ethereum/chain-keyword db)
         symbol    (keyword symbol)
         new-token {:address  contract
                    :name     name
@@ -177,27 +173,26 @@
                    :decimals (int decimals)
                    :color    (rand-nth colors/chat-colors)}]
     (fx/merge cofx
-              {:db (assoc-in db [:wallet/all-tokens chain-key contract]
+              {:db (assoc-in db [:wallet/all-tokens contract]
                              (assoc new-token :custom? true))
                ::json-rpc/call [{:method "wallet_addCustomToken"
                                  :params [new-token]
                                  :on-success #()}]}
               (wallet/add-custom-token new-token)
-              (wallet/update-prices)
+              (prices/update-prices)
               (navigation/navigate-back))))
 
 (fx/defn remove-custom-token
   {:events [:wallet.custom-token.ui/remove-pressed]}
   [{:keys [db] :as cofx} {:keys [address] :as token} navigate-back?]
-  (let [chain-key (ethereum/chain-keyword db)]
-    (fx/merge cofx
-              {:db (update-in db [:wallet/all-tokens chain-key] dissoc address)
-               ::json-rpc/call [{:method "wallet_deleteCustomToken"
-                                 :params [address]
-                                 :on-success #()}]}
-              (wallet/remove-custom-token token)
-              (when navigate-back?
-                (navigation/navigate-back)))))
+  (fx/merge cofx
+            {:db (update db :wallet/all-tokens dissoc address)
+             ::json-rpc/call [{:method "wallet_deleteCustomToken"
+                               :params [address]
+                               :on-success #()}]}
+            (wallet/remove-custom-token token)
+            (when navigate-back?
+              (navigation/navigate-back))))
 
 (fx/defn field-is-edited
   [{:keys [db] :as cofx} field-key value]

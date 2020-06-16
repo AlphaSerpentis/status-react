@@ -1,4 +1,4 @@
-library 'status-react-jenkins@master'
+library 'status-react-jenkins@v1.1.6'
 
 pipeline {
   agent { label 'linux' }
@@ -21,6 +21,8 @@ pipeline {
       daysToKeepStr: '20',
       artifactNumToKeepStr: '10',
     ))
+    /* Allows combined build to copy */
+    copyArtifactPermission('/status-react/*')
   }
 
   /**
@@ -39,7 +41,6 @@ pipeline {
     CONAN_SYSREQUIRES_MODE = 'disabled'
     CONAN_SYSREQUIRES_SUDO = '0'
     /* We use EXECUTOR_NUMBER to avoid multiple instances clashing */
-    LEIN_HOME         = "/var/tmp/lein-${EXECUTOR_NUMBER}"
     YARN_CACHE_FOLDER = "/var/tmp/yarn-${EXECUTOR_NUMBER}"
   }
 
@@ -67,14 +68,16 @@ pipeline {
                   buildResult: 'FAILURE',
                   stageResult: 'FAILURE'
                 ) {
-                  nix.shell('lein cljfmt check', attr: 'shells.lein')
+                  sh 'make lint'
                 }
               }
             }
           }
           stage('Tests') {
             steps {
-              script { nix.shell('lein test-cljs', attr: 'shells.lein') }
+              script {
+                sh 'make test'
+              }
             }
           }
         } }

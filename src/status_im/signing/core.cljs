@@ -2,26 +2,24 @@
   (:require [clojure.string :as string]
             [re-frame.core :as re-frame]
             [status-im.constants :as constants]
-            [status-im.utils.config :as config]
-            [status-im.waku.core :as waku]
             [status-im.ethereum.abi-spec :as abi-spec]
-            [status-im.ethereum.json-rpc :as json-rpc]
             [status-im.ethereum.core :as ethereum]
             [status-im.ethereum.eip55 :as eip55]
+            [status-im.ethereum.json-rpc :as json-rpc]
             [status-im.ethereum.tokens :as tokens]
+            [status-im.hardwallet.common :as hardwallet.common]
             [status-im.i18n :as i18n]
             [status-im.native-module.core :as status]
-            [status-im.utils.fx :as fx]
-            [status-im.hardwallet.common :as hardwallet.common]
-            [status-im.hardwallet.sign :as hardwallet.sign]
             [status-im.signing.keycard :as signing.keycard]
+            [status-im.utils.fx :as fx]
             [status-im.utils.hex :as utils.hex]
             [status-im.utils.money :as money]
             [status-im.utils.security :as security]
             [status-im.utils.types :as types]
             [status-im.utils.utils :as utils]
-            [taoensso.timbre :as log]
-            [re-frame.core :as re-frame.core]))
+            [status-im.waku.core :as waku]
+            [status-im.wallet.prices :as prices]
+            [taoensso.timbre :as log]))
 
 (re-frame/reg-fx
  :signing/send-transaction-fx
@@ -105,9 +103,10 @@
                                          :cb       #(re-frame/dispatch [:signing/transaction-completed % tx-obj-to-send hashed-password])}})))))
 
 (fx/defn prepare-unconfirmed-transaction
-  [{:keys [db now]} hash {:keys [value gasPrice gas data to from]} symbol amount]
-  (let [all-tokens (:wallet/all-tokens db)
-        token      (tokens/symbol->token all-tokens (ethereum/chain-keyword db) symbol)]
+  [{:keys [db now]} hash {:keys [value gasPrice gas data to from] :as tx} symbol amount]
+  (log/debug "[signing] prepare-unconfirmed-transaction")
+  (let [token (tokens/symbol->token (:wallet/all-tokens db) symbol)
+        from  (eip55/address->checksum from)]
     {:db (assoc-in db [:wallet :accounts from :transactions hash]
                    {:timestamp (str now)
                     :to        to
@@ -133,7 +132,7 @@
     :approve-and-call))
 
 (defn get-transfer-token [db to data]
-  (let [{:keys [symbol decimals] :as token} (tokens/address->token (:wallet/all-tokens db) (ethereum/chain-keyword db) to)]
+  (let [{:keys [symbol decimals] :as token} (tokens/address->token (:wallet/all-tokens db) to)]
     (when (and token data (string? data))
       (when-let [type (get-method-type data)]
         (let [[address value _] (abi-spec/decode
@@ -154,7 +153,7 @@
          (if (nil? to)
            {:contact {:name (i18n/label :t/new-contract)}}
            (let [eth-value  (when value (money/bignumber value))
-                 eth-amount (when eth-value (money/to-number (money/wei->ether eth-value)))
+                 eth-amount (when eth-value (money/to-fixed (money/wei->ether eth-value)))
                  token      (get-transfer-token db to data)]
              (cond
                (and eth-amount (or (not (zero? eth-amount)) (nil? data)))
@@ -180,25 +179,32 @@
 
 (fx/defn show-sign [{:keys [db] :as cofx}]
   (let [{:signing/keys [queue]} db
-        {{:keys [gas gasPrice] :as tx-obj} :tx-obj {:keys [data typed?] :as message} :message :as tx} (last queue)
+        {{:keys [gas gasPrice] :as tx-obj} :tx-obj {:keys [data typed? pinless?] :as message} :message :as tx} (last queue)
         keycard-multiaccount? (boolean (get-in db [:multiaccount :keycard-pairing]))
         wallet-set-up-passed? (get-in db [:multiaccount :wallet-set-up-passed?])
         updated-db (if wallet-set-up-passed? db (assoc db :popover/popover {:view :signing-phrase}))]
     (if message
-      {:db (assoc updated-db
-                  :signing/in-progress? true
-                  :signing/queue (drop-last queue)
-                  :signing/tx tx
-                  :signing/sign {:type           (if keycard-multiaccount? :keycard :password)
-                                 :formatted-data (if typed? (types/json->clj data) (ethereum/hex-to-utf8 data))})}
+      (fx/merge
+       cofx
+       {:db (assoc updated-db
+                   :signing/queue (drop-last queue)
+                   :signing/tx tx
+                   :signing/sign {:type           (cond pinless? :pinless
+                                                        keycard-multiaccount? :keycard
+                                                        :else :password)
+                                  :formatted-data (if typed? (types/json->clj data) (ethereum/hex->text data))
+                                  :keycard-step (when pinless? :connect)})}
+       (when pinless?
+         (signing.keycard/hash-message {:data data
+                                        :typed? true
+                                        :on-completed #(re-frame/dispatch [:hardwallet/store-hash-and-sign-typed %])})))
       (fx/merge
        cofx
        {:db               (assoc updated-db
-                                 :signing/in-progress? true
                                  :signing/queue (drop-last queue)
                                  :signing/tx (prepare-tx updated-db tx))
-        :dismiss-keyboard nil
-        :dispatch         [:wallet.ui/pull-to-refresh]} ;;TODO fix for v.1.2
+        :dismiss-keyboard nil}
+       (prices/update-prices)
        #(when-not gas
           {:db (assoc-in (:db %) [:signing/edit-fee :gas-loading?] true)
            :signing/update-estimated-gas {:obj           tx-obj
@@ -210,8 +216,8 @@
                                       :error-event :signing/update-gas-price-error}})))))
 
 (fx/defn check-queue [{:keys [db] :as cofx}]
-  (let [{:signing/keys [in-progress? queue]} db]
-    (when (and (not in-progress?) (seq queue))
+  (let [{:signing/keys [tx queue]} db]
+    (when (and (not tx) (seq queue))
       (show-sign cofx))))
 
 (fx/defn send-transaction-message
@@ -238,7 +244,7 @@
   [{:keys [db] :as cofx} result tx-obj]
   (let [{:keys [on-result symbol amount]} (get db :signing/tx)]
     (fx/merge cofx
-              {:db (dissoc db :signing/tx :signing/in-progress? :signing/sign)
+              {:db (dissoc db :signing/tx :signing/sign)
                :signing/show-transaction-result nil}
               (prepare-unconfirmed-transaction result tx-obj symbol amount)
               (check-queue)
@@ -253,13 +259,13 @@
                   (subs transaction-hash 2))]
     (fx/merge
      cofx
-     {:db (dissoc db :signing/tx :signing/in-progress? :signing/sign)}
+     {:db (dissoc db :signing/tx :signing/sign)}
      (if (hardwallet.common/keycard-multiaccount? db)
        (signing.keycard/hash-message
         {:data data
          :on-completed
          (fn [hash]
-           (re-frame.core/dispatch
+           (re-frame/dispatch
             [:hardwallet/sign-message
              {:tx-hash transaction-hash
               :message-id message-id
@@ -291,10 +297,17 @@
     (if (= code constants/send-transaction-err-decrypt)
       ;;wrong password
       {:db (assoc-in db [:signing/sign :error] (i18n/label :t/wrong-password))}
-      (merge {:db                             (dissoc db :signing/tx :signing/in-progress? :signing/sign)
+      (merge {:db                             (dissoc db :signing/tx :signing/sign)
               :signing/show-transaction-error message}
              (when on-error
                {:dispatch (conj on-error message)})))))
+
+(fx/defn dissoc-signing-db-entries-and-check-queue
+  {:events [:signing/dissoc-entries-and-check-queue]}
+  [{:keys [db] :as cofx}]
+  (fx/merge cofx
+            {:db (dissoc db :signing/tx :signing/sign)}
+            check-queue))
 
 (fx/defn sign-message-completed
   {:events [:signing/sign-message-completed]}
@@ -302,10 +315,17 @@
   (let [{:keys [result error]} (types/json->clj result)
         on-result (get-in db [:signing/tx :on-result])]
     (if error
-      {:db (update db :signing/sign assoc :error (i18n/label :t/wrong-password) :in-progress? false)}
+      {:db (update db :signing/sign
+                   assoc :error  (if (= 5 (:code error))
+                                   (i18n/label :t/wrong-password)
+                                   (:message error))
+                   :in-progress? false)}
       (fx/merge cofx
-                {:db (dissoc db :signing/tx :signing/in-progress? :signing/sign)}
-                (check-queue)
+                (when-not (= (-> db :signing/sign :type) :pinless)
+                  (dissoc-signing-db-entries-and-check-queue))
+                #(when (= (-> db :signing/sign :type) :pinless)
+                   {:dispatch-later [{:ms 3000
+                                      :dispatch [:signing/dissoc-entries-and-check-queue]}]})
                 #(when on-result
                    {:dispatch (conj on-result result)})))))
 
@@ -330,7 +350,7 @@
     (fx/merge cofx
               {:db (-> db
                        (assoc-in [:hardwallet :pin :status] nil)
-                       (dissoc :signing/tx :signing/in-progress? :signing/sign))}
+                       (dissoc :signing/tx :signing/sign))}
               (check-queue)
               (hardwallet.common/hide-connection-sheet)
               (hardwallet.common/clear-pin)

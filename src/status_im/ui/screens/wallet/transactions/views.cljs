@@ -9,7 +9,6 @@
             [status-im.ui.components.toolbar.actions :as actions]
             [status-im.ui.components.toolbar.view :as toolbar-old]
             [status-im.ui.screens.wallet.transactions.styles :as styles]
-            [status-im.ui.components.topbar :as topbar]
             [status-im.ui.components.toolbar :as toolbar])
   (:require-macros [status-im.utils.views :refer [defview letsubs]]))
 
@@ -77,7 +76,7 @@
   (let [link @(re-frame/subscribe [:wallet/etherscan-link address])]
     [react/touchable-highlight
      {:on-press #(when link
-                   (.openURL react/linking link))}
+                   (.openURL ^js react/linking link))}
      [react/view
       {:style {:flex             1
                :padding-horizontal 14
@@ -113,7 +112,9 @@
        :render-fn    #(render-transaction %)
        :empty-component
        [react/i18n-text {:style styles/empty-text
-                         :key   :transactions-history-empty}]
+                         :key   (if (or fetching-recent-history? fetching-more-history?)
+                                  :transactions-history-loading
+                                  :transactions-history-empty)}]
        :refreshing   false}]
      (when (and (not fetching-recent-history?)
                 (not all-fetched?))
@@ -131,36 +132,7 @@
                                 #(re-frame/dispatch
                                   [:transactions/fetch-more address]))}}]))]))
 
-(defn- render-item-filter [{:keys [id label checked? on-touch]}]
-  [react/view {:accessibility-label :filter-item}
-   [list/list-item-with-checkbox
-    {:checked?        checked?
-     :on-value-change on-touch}
-    [list/item
-     [list/item-icon (transaction-type->icon id)]
-     [list/item-content
-      [list/item-primary-only {:accessibility-label :filter-name-text}
-       label]]]]])
-
 ;; NOTE: Is this needed?
-(defview filter-history []
-  (letsubs [{:keys [filters all-filters? on-touch-select-all]}
-            [:wallet.transactions.filters/screen]]
-    [react/view styles/filter-container
-     [topbar/topbar {:title       :t/transactions-filter-title
-                     :navigation  {:label   (i18n/label :t/done)
-                                   :handler #(re-frame/dispatch [:navigate-back])}
-                     :accessories [{:label   :t/transactions-filter-select-all
-                                    :handler on-touch-select-all}]}]
-     [react/view
-      {:style (merge {:background-color colors/white} components.styles/flex)}
-      [list/section-list {:sections [{:title
-                                      (i18n/label :t/type)
-                                      :key       :type
-                                      :render-fn render-item-filter
-                                      :data filters}]
-                          :key-fn   :id}]]]))
-
 (defn details-header
   [date type amount-text currency-text]
   [react/view {:style styles/details-header}
@@ -241,7 +213,7 @@
   [(actions/opts [{:label (i18n/label :t/copy-transaction-hash)
                    :action #(react/copy-to-clipboard hash)}
                   {:label  (i18n/label :t/open-on-etherscan)
-                   :action #(.openURL react/linking url)}])])
+                   :action #(.openURL ^js react/linking url)}])])
 
 (defview transaction-details-view [hash address]
   (letsubs [{:keys [url type confirmations confirmations-progress

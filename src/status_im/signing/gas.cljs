@@ -1,25 +1,27 @@
 (ns status-im.signing.gas
-  (:require [status-im.utils.money :as money]
-            [status-im.utils.fx :as fx]
+  (:require [re-frame.core :as re-frame]
+            [status-im.ethereum.json-rpc :as json-rpc]
             [status-im.i18n :as i18n]
             [status-im.ui.components.bottom-sheet.core :as bottom-sheet]
-            [re-frame.core :as re-frame]
-            [status-im.ethereum.json-rpc :as json-rpc]))
+            [status-im.utils.fx :as fx]
+            [status-im.utils.money :as money]))
 
-(def min-gas-price-wei (money/bignumber 1))
+(def min-gas-price-wei ^js (money/bignumber 1))
+
+(def min-gas-units ^js (money/bignumber 21000))
 
 (defmulti get-error-label-key (fn [type _] type))
 
 (defmethod get-error-label-key :gasPrice [_ value]
   (cond
     (not value) :t/invalid-number
-    (.lt (money/->wei :gwei value) min-gas-price-wei) :t/wallet-send-min-wei
+    (.lt ^js (money/->wei :gwei value) min-gas-price-wei) :t/wallet-send-min-wei
     (-> (money/->wei :gwei value) .decimalPlaces pos?) :t/invalid-number))
 
-(defmethod get-error-label-key :gas [_ value]
+(defmethod get-error-label-key :gas [_ ^js value]
   (cond
     (not value) :t/invalid-number
-    (.lt value (money/bignumber 1)) :t/invalid-number
+    (.lt value min-gas-units) :t/wallet-send-min-units
     (-> value .decimalPlaces pos?) :t/invalid-number))
 
 (defmethod get-error-label-key :default [_ value]
@@ -28,7 +30,7 @@
     :t/invalid-number))
 
 (defn calculate-max-fee
-  [gas gasPrice]
+  [^js gas ^js gasPrice]
   (if (and gas gasPrice)
     (money/to-fixed (money/wei->ether (.times gas gasPrice)))
     "0"))
@@ -38,11 +40,12 @@
         gas      (get-in edit [:gas :value-number])]
     (assoc edit :max-fee (calculate-max-fee gas gasPrice))))
 
-(defn build-edit [edit-value key value]
+(defn build-edit
   "Takes the previous edit, either :gas or :gas-price and a value as string.
   Wei for gas, and gwei for gas price.
   Validates them and sets max fee"
-  (let [bn-value        (money/bignumber value)
+  [edit-value key value]
+  (let [^js bn-value        (money/bignumber value)
         error-label-key (get-error-label-key key bn-value)
         data            (if error-label-key
                           {:value   value

@@ -1,9 +1,12 @@
 (ns status-im.hardwallet.real-keycard
-  (:require [status-im.react-native.js-dependencies :as js-dependencies]
+  (:require ["react-native-status-keycard" :default status-keycard]
+            ["react-native" :as rn]
+            [status-im.utils.types :as types]
+            [status-im.native-module.core :as status]
+            [status-im.ethereum.core :as ethereum]
             [status-im.hardwallet.keycard :as keycard]))
 
-(defonce status-keycard (.-default js-dependencies/status-keycard))
-(defonce event-emitter (.-DeviceEventEmitter js-dependencies/react-native))
+(defonce event-emitter (.-DeviceEventEmitter rn))
 (defonce active-listeners (atom []))
 
 (defn check-nfc-support [{:keys [on-success]}]
@@ -21,24 +24,30 @@
 
 (defn remove-event-listeners []
   (doseq [event ["keyCardOnConnected" "keyCardOnDisconnected"]]
-    (.removeAllListeners event-emitter event)))
+    (.removeAllListeners ^js event-emitter event)))
 
-(defn remove-event-listener [event]
+(defn remove-event-listener
+  [^js event]
   (.remove event))
 
-(defn on-card-connected [callback]
-  (.addListener event-emitter "keyCardOnConnected" callback))
+(defn on-card-connected
+  [callback]
+  (.addListener ^js event-emitter "keyCardOnConnected" callback))
 
-(defn on-card-disconnected [callback]
-  (.addListener event-emitter "keyCardOnDisconnected" callback))
+(defn on-card-disconnected
+  [callback]
+  (.addListener ^js event-emitter "keyCardOnDisconnected" callback))
 
-(defn on-nfc-enabled [callback]
-  (.addListener event-emitter "keyCardOnNFCEnabled" callback))
+(defn on-nfc-enabled
+  [callback]
+  (.addListener ^js event-emitter "keyCardOnNFCEnabled" callback))
 
-(defn on-nfc-disabled [callback]
-  (.addListener event-emitter "keyCardOnNFCDisabled" callback))
+(defn on-nfc-disabled
+  [callback]
+  (.addListener ^js event-emitter "keyCardOnNFCDisabled" callback))
 
-(defn register-card-events [args]
+(defn register-card-events
+  [args]
   (doseq [listener @active-listeners]
     (remove-event-listener listener))
   (reset! active-listeners
@@ -47,15 +56,33 @@
            (on-nfc-enabled (:on-nfc-enabled args))
            (on-nfc-disabled (:on-nfc-disabled args))]))
 
-(defn get-application-info [{:keys [pairing on-success on-failure]}]
+(defn get-application-info
+  [{:keys [pairing on-success on-failure]}]
+  ;; NOTE: if the card fails to get application info in the middle of the call
+  ;; it doesn't returns a Tar was lost. error properly
+  ;; https://github.com/status-im/react-native-status-keycard/blob/master/android/src/main/java/im/status/ethereum/keycard/SmartCard.java#L235
+
   (.. status-keycard
       (getApplicationInfo (str pairing))
-      (then on-success)
+      (then (fn [response]
+              (let [info (-> response
+                             (js->clj :keywordize-keys true)
+                             (update :key-uid ethereum/normalized-hex))]
+                (if (and pairing (nil? (:pin-retry-counter info)))
+                  (on-failure (clj->js {:message "Tag was lost."
+                                        :code "android.nfc.TagLostException"}))
+                  (on-success info)))))
       (catch on-failure)))
 
 (defn install-applet [{:keys [on-success on-failure]}]
   (.. status-keycard
       installApplet
+      (then on-success)
+      (catch on-failure)))
+
+(defn install-cash-applet [{:keys [on-success on-failure]}]
+  (.. status-keycard
+      installCashApplet
       (then on-success)
       (catch on-failure)))
 
@@ -76,14 +103,6 @@
   (when password
     (.. status-keycard
         (pair password)
-        (then on-success)
-        (catch on-failure))))
-
-(defn generate-mnemonic
-  [{:keys [pairing words on-success on-failure]}]
-  (when pairing
-    (.. status-keycard
-        (generateMnemonic pairing words)
         (then on-success)
         (catch on-failure))))
 
@@ -171,12 +190,42 @@
         (catch on-failure))))
 
 (defn sign
-  [{:keys [pairing pin hash on-success on-failure]}]
+  [{:keys [pairing pin path hash on-success on-failure]}]
   (when (and pairing pin hash)
+    (if path
+      (.. status-keycard
+          (signWithPath pairing pin path hash)
+          (then on-success)
+          (catch on-failure))
+      (.. status-keycard
+          (sign pairing pin hash)
+          (then on-success)
+          (catch on-failure)))))
+
+(defn sign-typed-data
+  [{:keys [hash on-success on-failure]}]
+  (when hash
     (.. status-keycard
-        (sign pairing pin hash)
+        (signPinless hash)
         (then on-success)
         (catch on-failure))))
+
+(defn save-multiaccount-and-login
+  [{:keys [multiaccount-data password settings node-config accounts-data chat-key]}]
+  (status/save-multiaccount-and-login-with-keycard
+   (types/clj->json multiaccount-data)
+   password
+   (types/clj->json settings)
+   node-config
+   (types/clj->json accounts-data)
+   chat-key))
+
+(defn login [args]
+  (status/login-with-keycard args))
+
+(defn send-transaction-with-signature
+  [{:keys [transaction signature on-completed]}]
+  (status/send-transaction-with-signature transaction signature on-completed))
 
 (defrecord RealKeycard []
   keycard/Keycard
@@ -200,14 +249,14 @@
     (get-application-info args))
   (keycard/install-applet [this args]
     (install-applet args))
+  (keycard/install-cash-applet [this args]
+    (install-cash-applet args))
   (keycard/init-card [this args]
     (init-card args))
   (keycard/install-applet-and-init-card [this args]
     (install-applet-and-init-card args))
   (keycard/pair [this args]
     (pair args))
-  (keycard/generate-mnemonic [this args]
-    (generate-mnemonic args))
   (keycard/generate-and-load-key [this args]
     (generate-and-load-key args))
   (keycard/unblock-pin [this args]
@@ -231,4 +280,12 @@
   (keycard/get-keys [this args]
     (get-keys args))
   (keycard/sign [this args]
-    (sign args)))
+    (sign args))
+  (keycard/sign-typed-data [this args]
+    (sign-typed-data args))
+  (keycard/save-multiaccount-and-login [this args]
+    (save-multiaccount-and-login args))
+  (keycard/login [this args]
+    (login args))
+  (keycard/send-transaction-with-signature [this args]
+    (send-transaction-with-signature args)))

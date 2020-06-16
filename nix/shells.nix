@@ -1,71 +1,79 @@
 # This file defines custom shells as well as shortcuts
 # for accessing more nested shells.
-{
-  config ? {},
-  pkgs ? import ./pkgs.nix { inherit config; }
-}:
+{ config ? {}
+, pkgs ? import ./pkgs.nix { inherit config; } }:
 
 let
+  inherit (pkgs) lib mkShell callPackage;
+
   # everything else we define in nix/ dir
-  targets = pkgs.callPackage ./targets.nix { inherit config; };
+  targets = callPackage ./targets.nix { inherit config; };
 
-  # for calling lein targets in CI or Makefile
-  leiningen-sh = pkgs.mkShell {
-    buildInputs = with pkgs; [ clojure leiningen flock maven nodejs openjdk ];
-  };
+  # the default shell with most commonly used tools
+  default = callPackage ./shell.nix { };
 
-  # for 'make watchman-clean'
-  watchman-sh = pkgs.mkShell {
-    buildInputs = [ pkgs.watchman ];
-  };
-
-  # for running fastlane commands alone
-  fastlane-sh = targets.mobile.fastlane.shell;
-
-  # for 'scripts/generate-keystore.sh'
-  keytool-sh = pkgs.mkShell {
-    buildInputs = [ pkgs.openjdk8 ];
-  };
-
-  # the default shell that is used when target is not specified
-  default = pkgs.mkShell {
-    name = "status-react-shell"; # for identifying all shells
-    buildInputs = with pkgs; lib.unique ([
-      # core utilities that should always be present in a shell
-      bash curl wget file unzip flock git gnumake jq ncurses
-      # build specific utilities
-      clojure leiningen maven watchman
-      # other nice to have stuff
-      yarn nodejs python27
-    ] # and some special cases
-      ++ lib.optionals stdenv.isDarwin [ cocoapods clang ]
-      ++ lib.optionals (!stdenv.isDarwin) [ gcc8 ]
-    );
-
-    # just a nicety for easy access to node scripts
+  # Combines with many other shells
+  node-sh = mkShell {
+    buildInputs = [ pkgs.androidPkgs ];
     shellHook = ''
-      export PATH="$STATUS_REACT_HOME/node_modules/.bin:$PATH"
+      export STATUS_REACT_HOME=$(git rev-parse --show-toplevel)
+      $STATUS_REACT_HOME/nix/scripts/node_modules.sh ${pkgs.deps.nodejs-patched}
     '';
   };
 
-# values here can be selected using `nix-shell --argstr target $TARGET`
+  # An attrset for easier merging with default shell
+  shells = {
+    inherit default;
+
+    nodejs = node-sh;
+
+    # for calling clojure targets in CI or Makefile
+    clojure = mkShell {
+      buildInputs = with pkgs; [ clojure flock maven openjdk ];
+      inputsFrom = [ node-sh ];
+    };
+
+    # for 'make watchman-clean'
+    watchman = mkShell {
+      buildInputs = with pkgs; [ watchman ];
+    };
+
+    # for running fastlane commands alone
+    fastlane = targets.mobile.fastlane.shell;
+
+    # for running gradle by hand
+    gradle = mkShell {
+      buildInputs = with pkgs; [ gradle maven goMavenResolver ];
+      inputsFrom = [ node-sh ];
+      shellHook = ''
+        export STATUS_GO_ANDROID_LIBDIR="DUMMY"
+        export STATUS_NIX_MAVEN_REPO="${pkgs.deps.gradle}"
+        export ANDROID_SDK_ROOT="${pkgs.androidPkgs}"
+        export ANDROID_NDK_ROOT="${pkgs.androidPkgs}/ndk-bundle"
+      '';
+    };
+
+    # for 'scripts/generate-keystore.sh'
+    keytool = mkShell {
+      buildInputs = with pkgs; [ openjdk8 ];
+    };
+
+    # for targets that need 'adb' and other SDK/NDK tools
+    android-env = pkgs.androidShell;
+
+    # helpers for use with target argument
+    ios = targets.mobile.ios.shell;
+    android = targets.mobile.android.shell;
+    desktop = targets.desktop.shell;
+    linux = targets.desktop.linux.shell;
+    macos = targets.desktop.macos.shell;
+    windows = targets.desktop.macos.shell;
+    status-go = targets.status-go.mobile.android;
+  };
+
+  # for merging the default shell with others
+  mergeDefaultShell = (key: val: lib.mergeSh default [ val ]);
+
+# values here can be selected using `nix-shell --attr shells.$TARGET default.nix`
 # the nix/scripts/shell.sh wrapper does this for us and expects TARGET to be set
-in with pkgs; rec {
-  inherit default;
-  lein = leiningen-sh;
-  watchman = watchman-sh;
-  fastlane = fastlane-sh;
-  keytool = keytool-sh;
-  android-env = targets.mobile.android.env.shell;
-  # helpers for use with target argument
-  linux = targets.desktop.linux.shell;
-  macos = targets.desktop.macos.shell;
-  windows = targets.desktop.windows.shell;
-  android = targets.mobile.android.shell;
-  ios = targets.mobile.ios.shell;
-  # all shells together depending on host OS
-  all = mergeSh (mkShell {}) (lib.unique (
-    lib.optionals stdenv.isLinux  [ android linux windows ] ++
-    lib.optionals stdenv.isDarwin [ android macos ios ]
-  ));
-}
+in lib.mapAttrs mergeDefaultShell shells

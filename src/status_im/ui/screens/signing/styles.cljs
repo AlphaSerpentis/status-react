@@ -18,7 +18,7 @@
    :padding-right   24
    :margin-bottom   19})
 
-(def message
+(defn message []
   {:background-color        colors/white
    :border-top-right-radius 16
    :border-top-left-radius  16
@@ -41,7 +41,7 @@
    :padding-bottom          40})
 
 (defn sign-with-keycard-button [disabled?]
-  {:background-color   colors/black-light
+  {:background-color   (if (colors/dark?) "#27D8B9" colors/black-light)
    :padding-top        2
    :border-radius      8
    :width              182
@@ -55,6 +55,6 @@
 (defn sign-with-keycard-button-text [disabled?]
   {:padding-right      2
    :padding-left       16
-   :color              (if disabled? colors/black colors/white)
+   :color              (if disabled? colors/black colors/white-persist)
    :padding-horizontal 16
    :padding-vertical   10})

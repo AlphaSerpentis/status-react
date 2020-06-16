@@ -9,14 +9,15 @@
             [status-im.multiaccounts.create.core :as multiaccounts.create]
             [status-im.native-module.core :as status]
             [status-im.popover.core :as popover]
-            [status-im.ui.screens.navigation :as navigation]
+            [status-im.navigation :as navigation]
             [status-im.utils.fx :as fx]
             [status-im.utils.security :as security]
             [status-im.utils.types :as types]
             [status-im.utils.platform :as platform]
             [status-im.utils.utils :as utils]
             [status-im.ui.components.bottom-sheet.core :as bottom-sheet]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log]
+            [status-im.utils.config :as config]))
 
 (defn existing-account?
   [multiaccounts key-uid]
@@ -135,8 +136,10 @@
    {:title               (i18n/label :t/multiaccount-exists-title)
     :content             (i18n/label :t/multiaccount-exists-content)
     :confirm-button-text (i18n/label :t/unlock)
-    :on-accept           #(re-frame/dispatch
-                           [:multiaccounts.login.ui/multiaccount-selected key-uid])
+    :on-accept           #(do
+                            (re-frame/dispatch [:navigate-to :multiaccounts])
+                            (re-frame/dispatch
+                             [:multiaccounts.login.ui/multiaccount-selected key-uid]))
     :on-cancel           #(re-frame/dispatch [:navigate-to :multiaccounts])}})
 
 (fx/defn on-import-multiaccount-success
@@ -250,7 +253,8 @@
                          assoc :step :select-key-storage
                          :forward-action :multiaccounts.recover/select-storage-next-pressed
                          :selected-storage-type :default)}
-            (if (and platform/android?
+            (if (and (or platform/android?
+                         config/keycard-test-menu-enabled?)
                      (nfc/nfc-supported?))
               (navigation/navigate-to-cofx :recover-multiaccount-select-storage nil)
               (select-storage-next-pressed))))

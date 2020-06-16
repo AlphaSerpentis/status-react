@@ -1,18 +1,14 @@
 (ns status-im.multiaccounts.biometric.core
-  (:require
-   [status-im.utils.fx :as fx]
-   [status-im.utils.types :as types]
-   [clojure.string :as string]
-   [status-im.popover.core :as popover]
-   [status-im.native-module.core :as status]
-   [status-im.utils.platform :as platform]
-   [status-im.ui.components.colors :as colors]
-   [status-im.i18n :as i18n]
-   [status-im.react-native.js-dependencies :as js-dependencies]
-   [re-frame.core :as re-frame]
-   [status-im.ethereum.json-rpc :as json-rpc]
-   [status-im.utils.keychain.core :as keychain]
-   [taoensso.timbre :as log]))
+  (:require [re-frame.core :as re-frame]
+            [status-im.i18n :as i18n]
+            [status-im.native-module.core :as status]
+            [status-im.popover.core :as popover]
+            [status-im.ui.components.colors :as colors]
+            [status-im.utils.fx :as fx]
+            [status-im.utils.keychain.core :as keychain]
+            [status-im.utils.platform :as platform]
+            [taoensso.timbre :as log]
+            ["react-native-touch-id" :default touchid]))
 
 ;; currently, for android, react-native-touch-id
 ;; is not returning supported biometric type
@@ -77,7 +73,7 @@
      :bioauth-message (get-error-message code)}))
 
 (defn- do-get-supported [callback]
-  (-> (.isSupported js-dependencies/touchid)
+  (-> (.isSupported touchid)
       (.then #(callback (or (keyword %) android-default-support)))
       (.catch #(callback nil))))
 
@@ -94,7 +90,7 @@
    (authenticate-fx cb nil))
   ([cb {:keys [reason ios-fallback-label]}]
    (log/debug "[biometric] authenticate-fx")
-   (-> (.authenticate js-dependencies/touchid reason (authenticate-options ios-fallback-label))
+   (-> (.authenticate touchid reason (authenticate-options ios-fallback-label))
        (.then #(cb success-result))
        (.catch #(cb (generate-error-result %))))))
 

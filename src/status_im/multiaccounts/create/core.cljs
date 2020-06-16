@@ -5,23 +5,22 @@
             [status-im.data-store.settings :as data-store.settings]
             [status-im.ethereum.core :as ethereum]
             [status-im.ethereum.eip55 :as eip55]
-            [taoensso.timbre :as log]
-            [status-im.i18n :as i18n]
             [status-im.hardwallet.nfc :as nfc]
+            [status-im.i18n :as i18n]
             [status-im.multiaccounts.db :as db]
             [status-im.native-module.core :as status]
             [status-im.node.core :as node]
+            [status-im.ui.components.bottom-sheet.core :as bottom-sheet]
             [status-im.ui.components.colors :as colors]
-            [status-im.ui.screens.navigation :as navigation]
+            [status-im.navigation :as navigation]
+            [status-im.utils.config :as config]
             [status-im.utils.fx :as fx]
-            [status-im.utils.gfycat.core :as gfycat]
-            [status-im.utils.identicon :as identicon]
+            [status-im.utils.platform :as platform]
             [status-im.utils.security :as security]
             [status-im.utils.signing-phrase.core :as signing-phrase]
             [status-im.utils.types :as types]
             [status-im.utils.utils :as utils]
-            [status-im.utils.platform :as platform]
-            [status-im.ui.components.bottom-sheet.core :as bottom-sheet]))
+            [taoensso.timbre :as log]))
 
 (def step-kw-to-num
   {:generate-key         1
@@ -39,9 +38,10 @@
       (inverted (dec (step-kw-to-num step))))))
 
 (defn inc-step [step]
-  (let [inverted  (map-invert step-kw-to-num)]
+  (let [inverted (map-invert step-kw-to-num)]
     (if (and (= step :choose-key)
-             (or (not platform/android?)
+             (or (not (or platform/android?
+                          config/keycard-test-menu-enabled?))
                  (not (nfc/nfc-supported?))))
       :create-code
       (inverted (inc (step-kw-to-num step))))))
@@ -224,14 +224,9 @@
       :path       constants/path-whisper
       :chat       true})])
 
-(fx/defn save-account-and-login-with-keycard
-  [_ multiaccount-data password settings node-config accounts-data chat-key]
-  {::save-account-and-login-with-keycard [(types/clj->json multiaccount-data)
-                                          password
-                                          (types/clj->json settings)
-                                          node-config
-                                          (types/clj->json accounts-data)
-                                          chat-key]})
+(fx/defn save-multiaccount-and-login-with-keycard
+  [_ args]
+  {:hardwallet/save-multiaccount-and-login args})
 
 (fx/defn save-account-and-login
   [_ multiaccount-data password settings node-config accounts-data]
@@ -306,12 +301,13 @@
     (fx/merge cofx
               {:db db}
               (if keycard-multiaccount?
-                (save-account-and-login-with-keycard multiaccount-data
-                                                     password
-                                                     settings
-                                                     (node/get-new-config db)
-                                                     accounts-data
-                                                     chat-key)
+                (save-multiaccount-and-login-with-keycard
+                 {:multiaccount-data multiaccount-data
+                  :password          password
+                  :settings          settings
+                  :node-config       (node/get-new-config db)
+                  :accounts-data     accounts-data
+                  :chat-key          chat-key})
                 (save-account-and-login multiaccount-data
                                         (ethereum/sha3 (security/safe-unmask-data password))
                                         settings
@@ -326,7 +322,9 @@
    (status/multiaccount-generate-and-derive-addresses
     5
     12
-    [constants/path-whisper constants/path-default-wallet]
+    [constants/path-whisper
+     constants/path-wallet-root
+     constants/path-default-wallet]
     #(re-frame/dispatch [:intro-wizard/on-keys-generated
                          (mapv normalize-multiaccount-data-keys
                                (types/json->clj %))]))))
@@ -420,12 +418,3 @@
                                   settings
                                   config
                                   accounts-data)))
-(re-frame/reg-fx
- ::save-account-and-login-with-keycard
- (fn [[multiaccount-data password settings config accounts-data chat-key]]
-   (status/save-account-and-login-with-keycard multiaccount-data
-                                               (security/safe-unmask-data password)
-                                               settings
-                                               config
-                                               accounts-data
-                                               chat-key)))

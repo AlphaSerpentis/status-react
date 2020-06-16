@@ -1,33 +1,21 @@
 (ns status-im.chat.models.message
   (:require [re-frame.core :as re-frame]
-            [status-im.multiaccounts.model :as multiaccounts.model]
-            [status-im.ethereum.json-rpc :as json-rpc]
-            [status-im.utils.config :as config]
-            [status-im.chat.db :as chat.db]
-            [status-im.waku.core :as waku]
             [status-im.chat.models :as chat-model]
             [status-im.chat.models.loading :as chat-loading]
-            [status-im.chat.models.message-list :as message-list]
             [status-im.chat.models.message-content :as message-content]
+            [status-im.chat.models.message-list :as message-list]
             [status-im.constants :as constants]
-            [status-im.contact.db :as contact.db]
             [status-im.data-store.messages :as data-store.messages]
-            [status-im.ethereum.core :as ethereum]
-            [status-im.mailserver.core :as mailserver]
-            [status-im.native-module.core :as status]
-            [status-im.ui.screens.chat.state :as view.state]
+            [status-im.ethereum.json-rpc :as json-rpc]
+            [status-im.multiaccounts.model :as multiaccounts.model]
             [status-im.transport.message.protocol :as protocol]
-            [status-im.transport.utils :as transport.utils]
-            [status-im.ui.components.react :as react]
-            [status-im.utils.clocks :as utils.clocks]
-            [status-im.utils.datetime :as time]
+            [status-im.ui.screens.chat.state :as view.state]
             [status-im.utils.fx :as fx]
-            [status-im.utils.platform :as platform]
-            [status-im.utils.types :as types]
+            [status-im.waku.core :as waku]
             [taoensso.timbre :as log]))
 
 (defn- prepare-message
-  [{:keys [content content-type] :as message} chat-id current-chat?]
+  [{:keys [content content-type] :as message} current-chat?]
   (cond-> message
     current-chat?
     (assoc :seen true)
@@ -38,31 +26,10 @@
           (:line-count content)))
     (assoc :should-collapse? true)))
 
-(defn system-message? [{:keys [message-type]}]
-  (= constants/message-type-private-group-system-message message-type))
-
-(defn build-desktop-notification
-  [{:keys [db] :as cofx} {:keys [chat-id timestamp content from] :as message}]
-  (let [{:keys [group-chat] :as chat} (get-in db [:chats chat-id])
-        contact-name (get-in db [:contacts/contacts from :name]
-                             (:name (contact.db/public-key->new-contact from)))
-        chat-name        (if group-chat
-                           (chat.db/group-chat-name chat)
-                           contact-name)
-        ;; contact name and chat-name are the same in 1-1 chats
-        shown-chat-name   (when group-chat chat-name)
-        timestamp'        (when-not (< (time/seconds-ago (time/to-date timestamp)) 15)
-                            (str " @ " (time/to-short-str timestamp)))
-        body-first-line   (when (or shown-chat-name timestamp')
-                            (str shown-chat-name timestamp' ":\n"))]
-    {:title       contact-name
-     :body        (str body-first-line (:text content))
-     :prioritary? (not (chat-model/multi-user-chat? cofx chat-id))}))
-
 (fx/defn rebuild-message-list
   [{:keys [db]} chat-id]
-  {:db (assoc-in db [:chats chat-id :message-list]
-                 (message-list/add-many nil (vals (get-in db [:chats chat-id :messages]))))})
+  {:db (assoc-in db [:message-lists chat-id]
+                 (message-list/add-many nil (vals (get-in db [:messages chat-id]))))})
 
 (fx/defn hidden-message-marked-as-seen
   {:events [::hidden-message-marked-as-seen]}
@@ -75,7 +42,7 @@
   "Hide chat message, rebuild message-list"
   [{:keys [db] :as cofx} chat-id {:keys [seen message-id]}]
   (fx/merge cofx
-            {:db (update-in db [:chats chat-id :messages] dissoc message-id)}
+            {:db (update-in db [:messages chat-id] dissoc message-id)}
             (data-store.messages/mark-messages-seen chat-id [message-id] #(re-frame/dispatch [::hidden-message-marked-as-seen %1 %2 %3]))
             (rebuild-message-list chat-id)))
 
@@ -85,71 +52,59 @@
     :keys [seen-by-user?]}]
   (let [current-public-key (multiaccounts.model/current-public-key cofx)
         message-to-be-removed (when replace
-                                (get-in db [:chats chat-id :messages replace]))
-        prepared-message (prepare-message message chat-id seen-by-user?)]
+                                (get-in db [:messages chat-id replace]))
+        prepared-message (prepare-message message seen-by-user?)]
     (fx/merge cofx
               (when message-to-be-removed
                 (hide-message chat-id message-to-be-removed))
               (fn [{:keys [db]}]
-                {:db            (cond->
-                                 (-> db
-                                      ;; We should not be always adding to the list, as it does not make sense
-                                      ;; if the chat has not been initialized, but run into
-                                      ;; some troubles disabling it, so next time
-                                     (update-in [:chats chat-id :messages] assoc message-id prepared-message)
-                                     (update-in [:chats chat-id :message-list] message-list/add prepared-message))
-
-                                  (and (not seen-by-user?)
-                                       (not= from current-public-key))
-                                  (update-in [:chats chat-id :loaded-unviewed-messages-ids]
-                                             (fnil conj #{}) message-id))}))))
+                {:db (cond-> (-> db
+                                 ;; We should not be always adding to the list, as it does not make sense
+                                 ;; if the chat has not been initialized, but run into
+                                 ;; some troubles disabling it, so next time
+                                 (update-in [:messages chat-id] assoc message-id prepared-message)
+                                 (update-in [:message-lists chat-id] message-list/add prepared-message))
+                       (and (not seen-by-user?)
+                            (not= from current-public-key))
+                       (update-in [:chats chat-id :loaded-unviewed-messages-ids]
+                                  (fnil conj #{}) message-id))}))))
 
 (fx/defn add-received-message
   [{:keys [db] :as cofx}
-   {:keys [chat-id
-           clock-value] :as message}]
-  (let [{:keys [loaded-chat-id
-                view-id
-                current-chat-id]} db
-        cursor-clock-value             (get-in db [:chats current-chat-id :cursor-clock-value])
-        current-chat?                  (= chat-id loaded-chat-id)]
+   {:keys [chat-id clock-value] :as message}]
+  (let [{:keys [loaded-chat-id view-id current-chat-id]} db
+        cursor-clock-value (get-in db [:chats current-chat-id :cursor-clock-value])
+        current-chat?      (= chat-id loaded-chat-id)]
     (when current-chat?
       ;; If we don't have any hidden message or the hidden message is before
       ;; this one, we add the message to the UI
       (if (or (not @view.state/first-not-visible-item)
               (<= (:clock-value @view.state/first-not-visible-item)
                   clock-value))
-        (add-message cofx {:message      message
+        (add-message cofx {:message       message
                            :seen-by-user? (and current-chat?
                                                (= view-id :chat))})
         ;; Not in the current view, set all-loaded to false
         ;; and offload to db and update cursor if necessary
-        {:db (cond-> db
-               (>= clock-value
-                   cursor-clock-value)
+        {:db (cond-> (assoc-in db [:chats chat-id :all-loaded?] false)
+               (>= clock-value cursor-clock-value)
                (update-in [:chats chat-id] assoc
                           :cursor (chat-loading/clock-value->cursor clock-value)
-                          :cursor-clock-value clock-value)
-               :always
-               (assoc-in [:chats chat-id :all-loaded?] false))}))))
+                          :cursor-clock-value clock-value))}))))
 
-(defn- add-to-chat?
-  [{:keys [db]} {:keys [chat-id clock-value message-id from]}]
-  (let [{:keys [cursor-clock-value deleted-at-clock-value messages]}
+(defn- message-loaded?
+  [{:keys [db]} {:keys [chat-id message-id]}]
+  (get-in db [:messages chat-id message-id]))
+
+(defn- earlier-than-deleted-at?
+  [{:keys [db]} {:keys [chat-id clock-value]}]
+  (let [{:keys [deleted-at-clock-value]}
         (get-in db [:chats chat-id])]
-    (not (or (get messages message-id)
-             (>= deleted-at-clock-value clock-value)))))
+    (>= deleted-at-clock-value clock-value)))
 
-(fx/defn offload-message-from [{:keys [db] :as cofx} chat-id message-id]
-  (let [old-messages (get-in db [:chats chat-id :messages])]
-    (when-let [last-clock-value (get-in old-messages [message-id :clock-value])]
-      (let [new-messages (select-keys old-messages (for [[k v] old-messages :when (<= last-clock-value (:clock-value v))] k))]
-        (fx/merge cofx
-                  {:db (assoc-in db [:chats chat-id :messages] new-messages)}
-                  (rebuild-message-list chat-id))))))
-
-(defn extract-chat-id [cofx {:keys [chat-id from message-type]}]
+(defn extract-chat-id
   "Validate and return a valid chat-id"
+  [cofx {:keys [chat-id from message-type]}]
   (cond
     (and (= constants/message-type-private-group message-type)
          (and (get-in cofx [:db :chats chat-id :contacts from])
@@ -162,10 +117,7 @@
     (= constants/message-type-one-to-one message-type) from))
 
 (fx/defn update-unviewed-count
-  [{:keys [now db] :as cofx} {:keys [chat-id
-                                     from
-                                     message-type
-                                     message-id] :as message}]
+  [{:keys [db] :as cofx} {:keys [chat-id from message-type message-id]}]
   (when-not (= message-type constants/message-type-private-group-system-message)
     (let [{:keys [current-chat-id view-id]} db
           chat-view?         (= :chat view-id)
@@ -185,26 +137,72 @@
                         :unviewed-messages-count (inc current-count))}))))
 
 (fx/defn receive-one
-  [cofx message]
+  [{:keys [db] :as cofx} {:keys [message-id] :as message}]
   (when-let [chat-id (extract-chat-id cofx message)]
     (let [message-with-chat-id (assoc message :chat-id chat-id)]
-      (when (add-to-chat? cofx message-with-chat-id)
-        (fx/merge cofx
-                  (add-received-message message-with-chat-id)
-                  (update-unviewed-count message-with-chat-id)
-                  (chat-model/join-time-messages-checked chat-id)
-                  (when platform/desktop?
-                    (chat-model/update-dock-badge-label)))))))
+      (when-not (earlier-than-deleted-at? cofx message-with-chat-id)
+        (if (message-loaded? cofx message-with-chat-id)
+          ;; If the message is already loaded, it means it's an update, that
+          ;; happens when a message that was missing a reply had the reply
+          ;; coming through, in which case we just insert the new message
+          {:db (assoc-in db [:messages chat-id message-id] message-with-chat-id)}
+          (fx/merge cofx
+                    (add-received-message message-with-chat-id)
+                    (update-unviewed-count message-with-chat-id)
+                    (chat-model/join-time-messages-checked chat-id)))))))
+
+;;TODO currently we process every message, we need to precess them by batches
+;;or better move processing to status-go
+#_((fx/defn add-received-messages
+     [{:keys [db] :as cofx} grouped-messages]
+     (when-let [messages (get grouped-messages (:loaded-chat-id db))]
+       (apply fx/merge cofx (map add-received-message messages))))
+
+   (defn reduce-count-messages [me]
+     (fn [acc chat-id messages]
+       (assoc acc chat-id
+              (remove #(or
+                        (= (:message-type %)
+                           constants/message-type-private-group-system-message)
+                        (= (:from %) me))
+                      messages))))
+
+   (defn reduce-chat-messages [chat-view? current-chat-id]
+     (fn [acc chat-id messages]
+       (if (and chat-view? (= current-chat-id chat-id))
+         (data-store.messages/mark-messages-seen acc current-chat-id (map :message-id messages) nil)
+         (update-in acc [:db :chats chat-id :unviewed-messages-count] + (count messages)))))
+
+   (fx/defn update-unviewed-counts
+     [{:keys [db] :as cofx} grouped-messages]
+     (let [{:keys [current-chat-id view-id]} db
+           me (multiaccounts.model/current-public-key cofx)
+           messages (reduce-kv (reduce-count-messages me)
+                               {}
+                               grouped-messages)]
+       (when (seq messages)
+         (reduce-kv (reduce-chat-messages (= :chat view-id) current-chat-id) {:db db} messages))))
+
+   (fx/defn receive [cofx messages]
+     (when-let [grouped-messages
+                (->> (into []
+                           (comp
+                            (map #(assoc % :chat-id (extract-chat-id cofx %)))
+                            (remove #(earlier-than-deleted-at? cofx %)))
+                           messages)
+                     (group-by :chat-id))]
+       (when (seq grouped-messages)
+         (fx/merge cofx
+                   (add-received-messages grouped-messages)
+                   (update-unviewed-counts grouped-messages)
+                   (chat-model/join-time-messages-checked-for-chats (keys grouped-messages)))))))
 
 ;;;; Send message
-
-(def ^:private transport-keys [:content :content-type :message-type :clock-value :timestamp :name])
-
 (fx/defn update-message-status
   [{:keys [db] :as cofx} chat-id message-id status]
   (fx/merge cofx
             {:db (assoc-in db
-                           [:chats chat-id :messages message-id :outgoing-status]
+                           [:messages chat-id message-id :outgoing-status]
                            status)}
             (data-store.messages/update-outgoing-status message-id status)))
 
@@ -221,16 +219,9 @@
   "Deletes chat message, rebuild message-list"
   [{:keys [db] :as cofx} chat-id message-id]
   (fx/merge cofx
-            {:db            (update-in db [:chats chat-id :messages] dissoc message-id)}
+            {:db            (update-in db [:messages chat-id] dissoc message-id)}
             (data-store.messages/delete-message message-id)
             (rebuild-message-list chat-id)))
-
-(fx/defn handle-saved-system-messages
-  {:events [:messages/system-messages-saved]}
-  [cofx messages]
-  (apply fx/merge cofx (map #(add-message {:message       %
-                                           :seen-by-user? true})
-                            messages)))
 
 (fx/defn send-message
   [{:keys [db now] :as cofx} {:keys [chat-id] :as message}]
@@ -238,4 +229,4 @@
 
 (fx/defn toggle-expand-message
   [{:keys [db]} chat-id message-id]
-  {:db (update-in db [:chats chat-id :messages message-id :expanded?] not)})
+  {:db (update-in db [:messages chat-id message-id :expanded?] not)})

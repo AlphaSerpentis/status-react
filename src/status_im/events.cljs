@@ -1,73 +1,73 @@
 (ns status-im.events
-  (:require [clojure.string :as string]
-            [re-frame.core :as re-frame]
-            [status-im.multiaccounts.core :as multiaccounts]
-            [status-im.data-store.messages :as data-store.messages]
-            [status-im.data-store.chats :as data-store.chats]
-            [status-im.multiaccounts.create.core :as multiaccounts.create]
-            [status-im.multiaccounts.login.core :as multiaccounts.login]
-            [status-im.multiaccounts.logout.core :as multiaccounts.logout]
-            [status-im.multiaccounts.recover.core :as multiaccounts.recover]
-            [status-im.multiaccounts.update.core :as multiaccounts.update]
-            status-im.multiaccounts.biometric.core
+  (:require [re-frame.core :as re-frame]
             [status-im.bootnodes.core :as bootnodes]
             [status-im.browser.core :as browser]
             [status-im.browser.permissions :as browser.permissions]
-            [status-im.chat.db :as chat.db]
             [status-im.chat.models :as chat]
             [status-im.chat.models.input :as chat.input]
             [status-im.chat.models.loading :as chat.loading]
             [status-im.chat.models.message :as chat.message]
+            [status-im.chat.models.message-seen :as message-seen]
             [status-im.contact.block :as contact.block]
             [status-im.contact.core :as contact]
-            [status-im.ethereum.core :as ethereum]
-            [status-im.ethereum.ens :as ethereum.ens]
+            [status-im.data-store.chats :as data-store.chats]
+            [status-im.data-store.messages :as data-store.messages]
             [status-im.ethereum.subscriptions :as ethereum.subscriptions]
-            [status-im.ethereum.transactions.core :as ethereum.transactions]
             [status-im.fleet.core :as fleet]
             [status-im.group-chats.core :as group-chats]
-            [status-im.signing.keycard :as signing.keycard]
             [status-im.i18n :as i18n]
             [status-im.init.core :as init]
             [status-im.log-level.core :as log-level]
-            status-im.waku.core
-            [status-im.utils.universal-links.core :as universal-links]
-            [status-im.mailserver.core :as mailserver]
             [status-im.mailserver.constants :as mailserver.constants]
+            [status-im.mailserver.core :as mailserver]
             [status-im.mailserver.topics :as mailserver.topics]
-            [status-im.node.core :as node]
+            [status-im.multiaccounts.core :as multiaccounts]
+            [status-im.multiaccounts.login.core :as multiaccounts.login]
+            [status-im.multiaccounts.logout.core :as multiaccounts.logout]
+            [status-im.multiaccounts.update.core :as multiaccounts.update]
             [status-im.pairing.core :as pairing]
             [status-im.privacy-policy.core :as privacy-policy]
-            [status-im.protocol.core :as protocol]
             [status-im.qr-scanner.core :as qr-scanner]
-            [status-im.search.core :as search]
             [status-im.signals.core :as signals]
             [status-im.stickers.core :as stickers]
             [status-im.transport.core :as transport]
             [status-im.transport.message.core :as transport.message]
-            status-im.wallet.choose-recipient.core
-            status-im.wallet.collectibles.core
-            status-im.wallet.accounts.core
             [status-im.ui.components.bottom-sheet.core :as bottom-sheet]
             [status-im.ui.components.react :as react]
-            [status-im.ui.screens.add-new.new-chat.db :as new-chat.db]
             [status-im.ui.screens.currency-settings.models
              :as
              currency-settings.models]
-            [status-im.ui.screens.navigation :as navigation]
-            [status-im.utils.build :as build]
-            [status-im.utils.config :as config]
+            [status-im.navigation :as navigation]
             [status-im.utils.fx :as fx]
             [status-im.utils.handlers :as handlers]
             [status-im.utils.logging.core :as logging]
-            [status-im.utils.utils :as utils]
+            [status-im.utils.universal-links.core :as universal-links]
             [status-im.wallet.core :as wallet]
             [status-im.wallet.custom-tokens.core :as custom-tokens]
             [status-im.wallet.db :as wallet.db]
             [taoensso.timbre :as log]
-            [status-im.utils.money :as money]
+            status-im.waku.core
+            status-im.wallet.choose-recipient.core
+            status-im.wallet.collectibles.core
+            status-im.wallet.accounts.core
+            status-im.multiaccounts.biometric.core
             status-im.hardwallet.core
-            status-im.popover.core))
+            status-im.popover.core
+            [status-im.hardwallet.core :as hardwallet]
+            [status-im.utils.dimensions :as dimensions]
+            [status-im.multiaccounts.biometric.core :as biometric]
+            [status-im.constants :as constants]
+            [status-im.native-module.core :as status]
+            [status-im.ui.components.permissions :as permissions]
+            [status-im.utils.http :as http]
+            [status-im.utils.utils :as utils]
+            status-im.ui.screens.add-new.new-chat.events
+            status-im.ui.screens.group.chat-settings.events
+            status-im.ui.screens.group.events
+            status-im.utils.universal-links.events
+            status-im.search.core
+            status-im.ui.screens.profile.events
+            status-im.chat.models.images))
 
 ;; init module
 (handlers/register-handler-fx
@@ -95,7 +95,7 @@
 (def CUD-url "https://chaos-unicorn-day.org")
 
 (defn open-chaos-unicorn-day-link []
-  (.openURL react/linking CUD-url))
+  (.openURL ^js react/linking CUD-url))
 
 (handlers/register-handler-fx
  :multiaccounts.ui/chaos-mode-switched
@@ -233,7 +233,7 @@
 
 (handlers/register-handler-fx
  :mailserver.ui/retry-request-pressed
- (fn [cofx [_ args]]
+ (fn [cofx [_ _]]
    (mailserver/retry-next-messages-request cofx)))
 
 (handlers/register-handler-fx
@@ -345,7 +345,7 @@
 
 (handlers/register-handler-fx
  :log-level.ui/logging-enabled-confirmed
- (fn [cofx [_ enabled]]
+ (fn [_ [_ _]]
    ;;FIXME desktop only
    #_(log-level/save-logging-enabled cofx enabled)))
 
@@ -429,12 +429,12 @@
 (handlers/register-handler-fx
  :chat.ui/fill-gaps
  (fn [{:keys [db] :as cofx} [_ gap-ids]]
-   (let [chat-id           (:current-chat-id db)
-         topics            (mailserver.topics/topics-for-current-chat db)
-         gaps              (keep
-                            (fn [id]
-                              (get-in db [:mailserver/gaps chat-id id]))
-                            gap-ids)]
+   (let [chat-id (:current-chat-id db)
+         topics  (mailserver.topics/topics-for-current-chat db)
+         gaps    (keep
+                  (fn [id]
+                    (get-in db [:mailserver/gaps chat-id id]))
+                  gap-ids)]
      (mailserver/fill-the-gap
       cofx
       {:gaps    gaps
@@ -444,19 +444,19 @@
 (handlers/register-handler-fx
  :chat.ui/fetch-more
  (fn [{:keys [db] :as cofx}]
-   (let [chat-id           (:current-chat-id db)
+   (let [chat-id (:current-chat-id db)
 
          {:keys [lowest-request-from]}
          (get-in db [:mailserver/ranges chat-id])
 
-         topics            (mailserver.topics/topics-for-current-chat db)
-         gaps              [{:id   :first-gap
-                             :to   lowest-request-from
-                             :from (- lowest-request-from mailserver.constants/one-day)}]]
+         topics  (mailserver.topics/topics-for-current-chat db)
+         gaps    [{:id   :first-gap
+                   :to   lowest-request-from
+                   :from (- lowest-request-from mailserver.constants/one-day)}]]
      (mailserver/fill-the-gap
       cofx
       {:gaps    gaps
-       :topics   topics
+       :topics  topics
        :chat-id chat-id}))))
 
 (handlers/register-handler-fx
@@ -510,13 +510,13 @@
 
 (handlers/register-handler-fx
  :chat.ui/clear-history
- (fn [cofx  [_ chat-id]]
+ (fn [cofx [_ chat-id]]
    (chat/clear-history cofx chat-id)))
 
 (handlers/register-handler-fx
  :chat.ui/resend-message
  (fn [{:keys [db] :as cofx} [_ chat-id message-id]]
-   (let [message (get-in db [:chats chat-id :messages message-id])]
+   (let [message (get-in db [:messages chat-id message-id])]
      (fx/merge
       cofx
       (transport.message/set-message-envelope-hash chat-id message-id (:message-type message) 1)
@@ -544,8 +544,8 @@
 
 (handlers/register-handler-fx
  :chat.ui/reply-to-message
- (fn [cofx [_ message-id]]
-   (chat.input/reply-to-message cofx message-id)))
+ (fn [cofx [_ message]]
+   (chat.input/reply-to-message cofx message)))
 
 (handlers/register-handler-fx
  :chat.ui/send-current-message
@@ -555,7 +555,7 @@
 (defn- mark-messages-seen
   [{:keys [db] :as cofx}]
   (let [{:keys [current-chat-id]} db]
-    (chat/mark-messages-seen cofx current-chat-id)))
+    (message-seen/mark-messages-seen cofx current-chat-id)))
 
 (handlers/register-handler-fx
  :chat.ui/mark-messages-seen
@@ -573,7 +573,7 @@
      :stickers/recent-stickers
      (conj (remove #(= hash %) (:stickers/recent-stickers multiaccount)) hash)
      {})
-    (chat.input/send-sticker-fx sticker current-chat-id))))
+    (chat.input/send-sticker-message sticker current-chat-id))))
 
 (handlers/register-handler-fx
  :chat/disable-cooldown
@@ -785,7 +785,7 @@
 
 (handlers/register-handler-fx
  :group-chats.ui/leave-chat-pressed
- (fn [_ [_ chat-id group?]]
+ (fn [_ [_ chat-id _]]
    {:ui/show-confirmation {:title               (i18n/label :t/leave-confirmation)
                            :content             (i18n/label :t/leave-chat-confirmation)
                            :confirm-button-text (i18n/label :t/leave)
@@ -799,28 +799,25 @@
 
 (handlers/register-handler-fx
  :transport/send-status-message-error
- (fn [{:keys [db] :as cofx} [_ err]]
+ (fn [_ [_ err]]
    (log/error :send-status-message-error err)))
 
 (fx/defn handle-update [cofx {:keys [chats messages] :as response}]
-  (let [chats (map data-store.chats/<-rpc chats)
-        messages (map data-store.messages/<-rpc messages)
+  (let [chats       (map data-store.chats/<-rpc chats)
+        messages    (map data-store.messages/<-rpc messages)
         message-fxs (map chat.message/receive-one messages)
-        chat-fxs (map #(chat/ensure-chat (dissoc % :unviewed-messages-count)) chats)]
+        chat-fxs    (map #(chat/ensure-chat (dissoc % :unviewed-messages-count)) chats)]
     (apply fx/merge cofx (concat chat-fxs message-fxs))))
 
 (handlers/register-handler-fx
  :transport/message-sent
  (fn [cofx [_ response messages-count]]
-   (let [{:keys [localChatId id messageType]} (-> response :messages first)]
-     (fx/merge cofx
-               (handle-update response)
-               (transport.message/set-message-envelope-hash localChatId id messageType messages-count)))))
-
-(handlers/register-handler-fx
- :transport/contact-message-sent
- (fn [cofx [_ chat-id envelope-hash]]
-   (transport.message/set-contact-message-envelope-hash cofx chat-id envelope-hash)))
+   (let [set-hash-fxs (map (fn [{:keys [localChatId id messageType]}]
+                             (transport.message/set-message-envelope-hash localChatId id messageType messages-count))
+                           (:messages response))]
+     (apply fx/merge cofx
+            (conj set-hash-fxs
+                  (handle-update response))))))
 
 (handlers/register-handler-fx
  :transport.callback/node-info-fetched
@@ -845,38 +842,9 @@
  (fn [cofx [_ public-key]]
    (contact.block/unblock-contact cofx public-key)))
 
-(defn get-validation-label [value]
-  (case value
-    :invalid
-    (i18n/label :t/use-valid-contact-code)
-    :yourself
-    (i18n/label :t/can-not-add-yourself)))
-
-(handlers/register-handler-fx
- :contact/qr-code-scanned
- [(re-frame/inject-cofx :random-id-generator)]
- (fn [{:keys [db] :as cofx} [_ contact-identity _]]
-   (let [public-key?       (and (string? contact-identity)
-                                (string/starts-with? contact-identity "0x"))
-         validation-result (new-chat.db/validate-pub-key db contact-identity)]
-     (cond
-       (and public-key? (not (some? validation-result)))
-       (chat/start-chat cofx contact-identity {:navigation-reset? true})
-
-       (and (not public-key?) (string? contact-identity))
-       (let [chain (ethereum/chain-keyword db)]
-         {:resolve-public-key {:chain            chain
-                               :contact-identity contact-identity
-                               :cb               #(re-frame/dispatch [:contact/qr-code-scanned %])}})
-
-       :else
-       {:utils/show-popup {:title      (i18n/label :t/unable-to-read-this-code)
-                           :content    (get-validation-label validation-result)
-                           :on-dismiss #(re-frame/dispatch [:navigate-to-clean :home])}}))))
-
 (handlers/register-handler-fx
  :contact.ui/start-group-chat-pressed
- (fn [{:keys [db] :as cofx} _]
+ (fn [cofx _]
    (contact/open-contact-toggle-list cofx)))
 
 (handlers/register-handler-fx
@@ -1021,7 +989,7 @@
  (fn [cofx [_ view options]]
    (bottom-sheet/show-bottom-sheet
     cofx
-    {:view view
+    {:view    view
      :options options})))
 
 (handlers/register-handler-fx
@@ -1081,11 +1049,6 @@
 ;; wallet events
 
 (handlers/register-handler-fx
- :wallet.ui/pull-to-refresh
- (fn [cofx _]
-   (wallet/update-prices cofx)))
-
-(handlers/register-handler-fx
  :wallet.transactions/add-filter
  (fn [{:keys [db]} [_ id]]
    {:db (update-in db [:wallet :filters] conj id)}))
@@ -1143,17 +1106,16 @@
 
 (handlers/register-handler-fx
  :wallet-send-request
- (fn [{:keys [db] :as cofx} [_ public-key amount symbol decimals]]
+ (fn [cofx [_ public-key _ _ _]]
    (assert public-key)
-   (let [request-command (get-in db [:id->command ["request" #{:personal-chats}]])]
-     (fx/merge cofx
-               (navigation/navigate-back)
-               (chat/start-chat public-key nil)
-               ;; TODO send
-               #_(commands.sending/send public-key
-                                        request-command
-                                        {:asset  (name symbol)
-                                         :amount (str (money/internal->formatted amount symbol decimals))})))))
+   (fx/merge cofx
+             (navigation/navigate-back)
+             (chat/start-chat public-key nil)
+             ;; TODO send
+             #_(commands.sending/send public-key
+                                      request-command
+                                      {:asset  (name symbol)
+                                       :amount (str (money/internal->formatted amount symbol decimals))}))))
 
 (handlers/register-handler-fx
  :identicon-generated
@@ -1169,5 +1131,192 @@
  :system-theme-mode-changed
  (fn [{:keys [db]} [_ theme]]
    (let [cur-theme (get-in db [:multiaccount :appearance])]
-     (when (or (nil? cur-theme) (zero?  cur-theme))
+     (when (or (nil? cur-theme) (zero? cur-theme))
        {::multiaccounts/switch-theme (if (= :dark theme) 2 1)}))))
+
+(defn- http-get [{:keys [url response-validator success-event-creator failure-event-creator timeout-ms]}]
+  (let [on-success #(re-frame/dispatch (success-event-creator %))
+        on-error   (when failure-event-creator #(re-frame/dispatch (failure-event-creator %)))
+        opts       {:valid-response? response-validator
+                    :timeout-ms      timeout-ms}]
+    (http/get url on-success on-error opts)))
+
+(re-frame/reg-fx
+ :http-get
+ http-get)
+
+(defn- http-raw-get [{:keys [url success-event-creator failure-event-creator timeout-ms]}]
+  (let [on-success #(when-let [event (success-event-creator %)] (re-frame/dispatch event))
+        on-error   (when failure-event-creator #(re-frame/dispatch (failure-event-creator %)))
+        opts       {:timeout-ms timeout-ms}]
+    (http/raw-get url on-success on-error opts)))
+
+(re-frame/reg-fx
+ :http-raw-get
+ http-raw-get)
+
+(re-frame/reg-fx
+ :http-get-n
+ (fn [calls]
+   (doseq [call calls]
+     (http-get call))))
+
+(defn- http-post [{:keys [url data response-validator success-event-creator failure-event-creator timeout-ms opts]}]
+  (let [on-success #(re-frame/dispatch (success-event-creator %))
+        on-error   (when failure-event-creator #(re-frame/dispatch (failure-event-creator %)))
+        all-opts   (assoc opts
+                          :valid-response? response-validator
+                          :timeout-ms timeout-ms)]
+    (http/post url data on-success on-error all-opts)))
+
+(re-frame/reg-fx
+ :http-post
+ http-post)
+
+(defn- http-raw-post [{:keys [url body response-validator on-success on-error timeout-ms opts]}]
+  (let [all-opts   (assoc opts
+                          :valid-response? response-validator
+                          :timeout-ms timeout-ms)]
+    (http/raw-post url body on-success on-error all-opts)))
+
+(re-frame/reg-fx
+ :http-raw-post
+ http-raw-post)
+
+(re-frame/reg-fx
+ :request-permissions-fx
+ (fn [options]
+   (permissions/request-permissions options)))
+
+(re-frame/reg-fx
+ :ui/listen-to-window-dimensions-change
+ (fn []
+   (dimensions/add-event-listener)))
+
+(re-frame/reg-fx
+ :ui/show-error
+ (fn [content]
+   (utils/show-popup "Error" content)))
+
+(re-frame/reg-fx
+ :ui/show-confirmation
+ (fn [options]
+   (utils/show-confirmation options)))
+
+(re-frame/reg-fx
+ :ui/close-application
+ (fn [_]
+   (status/close-application)))
+
+(re-frame/reg-fx
+ ::app-state-change-fx
+ (fn [state]
+   (status/app-state-change state)))
+
+(handlers/register-handler-fx
+ :set
+ (fn [{:keys [db]} [_ k v]]
+   {:db (assoc db k v)}))
+
+(handlers/register-handler-fx
+ :set-once
+ (fn [{:keys [db]} [_ k v]]
+   (when-not (get db k)
+     {:db (assoc db k v)})))
+
+(handlers/register-handler-fx
+ :set-in
+ (fn [{:keys [db]} [_ path v]]
+   {:db (assoc-in db path v)}))
+
+(def authentication-options
+  {:reason (i18n/label :t/biometric-auth-reason-login)})
+
+(defn- on-biometric-auth-result [{:keys [bioauth-success bioauth-code bioauth-message]}]
+  (when-not bioauth-success
+    (if (= bioauth-code "USER_FALLBACK")
+      (re-frame/dispatch [:multiaccounts.logout.ui/logout-confirmed])
+      (utils/show-confirmation {:title               (i18n/label :t/biometric-auth-confirm-title)
+                                :content             (or bioauth-message (i18n/label :t/biometric-auth-confirm-message))
+                                :confirm-button-text (i18n/label :t/biometric-auth-confirm-try-again)
+                                :cancel-button-text  (i18n/label :t/biometric-auth-confirm-logout)
+                                :on-accept           #(biometric/authenticate nil on-biometric-auth-result authentication-options)
+                                :on-cancel           #(re-frame/dispatch [:multiaccounts.logout.ui/logout-confirmed])}))))
+
+(fx/defn on-return-from-background [{:keys [db now] :as cofx}]
+  (let [app-in-background-since (get db :app-in-background-since)
+        signed-up?              (get-in db [:multiaccount :signed-up?])
+        biometric-auth?         (= (:auth-method db) "biometric")
+        requires-bio-auth       (and
+                                 signed-up?
+                                 biometric-auth?
+                                 (some? app-in-background-since)
+                                 (>= (- now app-in-background-since)
+                                     constants/ms-in-bg-for-require-bioauth))]
+    (fx/merge cofx
+              {:db (-> db
+                       (dissoc :app-in-background-since)
+                       (assoc :app-active-since now))}
+              (mailserver/process-next-messages-request)
+              #(when requires-bio-auth
+                 (biometric/authenticate % on-biometric-auth-result authentication-options)))))
+
+(fx/defn on-going-in-background [{:keys [db now]}]
+  {:db (-> db
+           (dissoc :app-active-since)
+           (assoc :app-in-background-since now))})
+
+(defn app-state-change [state {:keys [db] :as cofx}]
+  (let [app-coming-from-background? (= state "active")
+        app-going-in-background?    (= state "background")]
+    (fx/merge cofx
+              {::app-state-change-fx state
+               :db                   (assoc db :app-state state)}
+              #(when app-coming-from-background?
+                 (on-return-from-background %))
+              #(when app-going-in-background?
+                 (on-going-in-background %)))))
+
+(handlers/register-handler-fx
+ :app-state-change
+ (fn [cofx [_ state]]
+   (app-state-change state cofx)))
+
+(handlers/register-handler-fx
+ :request-permissions
+ (fn [_ [_ options]]
+   {:request-permissions-fx options}))
+
+(handlers/register-handler-fx
+ :set-swipe-position
+ (fn [{:keys [db]} [_ type item-id value]]
+   {:db (assoc-in db [:animations type item-id :delete-swiped] value)}))
+
+(handlers/register-handler-fx
+ :update-window-dimensions
+ (fn [{:keys [db]} [_ dimensions]]
+   {:db (assoc db :dimensions/window (dimensions/window dimensions))}))
+
+(handlers/register-handler-fx
+ :set-two-pane-ui-enabled
+ (fn [{:keys [db]} [_ enabled?]]
+   {:db (assoc db :two-pane-ui-enabled? enabled?)}))
+
+;; NOTE: Will be removed with the keycard PR
+(handlers/register-handler-fx
+ :screens/on-will-focus
+ (fn [cofx [_ view-id]]
+   (fx/merge cofx
+             #(case view-id
+                :keycard-settings (hardwallet/settings-screen-did-load %)
+                :reset-card (hardwallet/reset-card-screen-did-load %)
+                :enter-pin-settings (hardwallet/enter-pin-screen-did-load %)
+                :keycard-login-pin (hardwallet/enter-pin-screen-did-load %)
+                :add-new-account-pin (hardwallet/enter-pin-screen-did-load %)
+                :hardwallet-authentication-method (hardwallet/authentication-method-screen-did-load %)
+                ;; We need this as if you click on universal-links you transition
+                ;; from chat to chat, and therefore we won't be loading new
+                ;; messages
+                :chat (chat.loading/load-messages %)
+                :multiaccounts (hardwallet/multiaccounts-screen-did-load %)
+                nil))))

@@ -1,55 +1,10 @@
 (ns status-im.chat.db
-  (:require [clojure.set :as clojure.set]
-            [clojure.string :as string]
-            [status-im.multiaccounts.core :as multiaccounts]
-            [status-im.contact.db :as contact.db]
-            [status-im.group-chats.db :as group-chats.db]
-            [status-im.mailserver.constants :as mailserver.constants]
-            [status-im.utils.gfycat.core :as gfycat]))
+  (:require [clojure.string :as clojure.string]
+            [status-im.mailserver.constants :as mailserver.constants]))
 
 (defn group-chat-name
   [{:keys [public? name]}]
   (str (when public? "#") name))
-
-(defn enrich-active-chat
-  [contacts {:keys [chat-id public? group-chat name] :as chat} current-public-key]
-  (if group-chat
-    (let [pending-invite-inviter-name
-          (group-chats.db/get-pending-invite-inviter-name contacts
-                                                          chat
-                                                          current-public-key)
-          inviter-name
-          (group-chats.db/get-inviter-name contacts
-                                           chat
-                                           current-public-key)]
-      (cond-> chat
-        pending-invite-inviter-name
-        (assoc :pending-invite-inviter-name pending-invite-inviter-name)
-        inviter-name
-        (assoc :inviter-name inviter-name)
-        :always
-        (assoc :chat-name (group-chat-name chat))))
-    (let [{contact-name :name :as contact}
-          (get contacts chat-id
-               (contact.db/public-key->new-contact chat-id))
-          random-name (gfycat/generate-gfy chat-id)]
-      (-> chat
-          (assoc :contact contact
-                 :chat-name (multiaccounts/displayed-name contact)
-                 :name contact-name
-                 :random-name random-name)
-          (update :tags clojure.set/union (:tags contact))))))
-
-(defn active-chats
-  [contacts chats {:keys [public-key]}]
-  (reduce-kv (fn [acc chat-id {:keys [is-active] :as chat}]
-               (if is-active
-                 (assoc acc
-                        chat-id
-                        (enrich-active-chat contacts chat public-key))
-                 acc))
-             {}
-             chats))
 
 (defn datemark? [{:keys [type]}]
   (= type :datemark))
@@ -106,21 +61,23 @@
                                   120000)]
     (reduce
      (fn [acc {:keys [from to id]}]
-       (if (and next-message
-                (not ignore-next-message?)
-                (or
-                 (and (nil? previous-timestamp)
-                      (< from next-whisper-timestamp))
-                 (and
-                  (< previous-timestamp from)
-                  (< to next-whisper-timestamp))
-                 (and
-                  (< from previous-timestamp)
-                  (< to next-whisper-timestamp))))
-         (-> acc
-             (update :gaps-number inc)
-             (update-in [:gap :ids] conj id))
-         (reduced acc)))
+       (let [from-ms (* from 1000)
+             to-ms (* to 1000)]
+         (if (and next-message
+                  (not ignore-next-message?)
+                  (or
+                   (and (nil? previous-timestamp)
+                        (< from-ms next-whisper-timestamp))
+                   (and
+                    (< previous-timestamp from-ms)
+                    (< to-ms next-whisper-timestamp))
+                   (and
+                    (< from-ms previous-timestamp)
+                    (< to-ms next-whisper-timestamp))))
+           (-> acc
+               (update :gaps-number inc)
+               (update-in [:gap :ids] conj id))
+           (reduced acc))))
      {:gaps-number 0
       :gap         nil}
      gaps)))

@@ -1,52 +1,41 @@
 (ns status-im.ui.screens.add-new.new-public-chat.view
   (:require [re-frame.core :as re-frame]
             [status-im.i18n :as i18n]
-            [status-im.ui.components.react :as react]
-            [status-im.ui.components.styles :as common.styles]
-            [status-im.ui.components.text-input.view :as text-input.view]
-            [status-im.ui.components.toolbar.view :as toolbar]
-            [status-im.ui.components.tooltip.views :as tooltip]
-            [status-im.ui.screens.add-new.new-public-chat.db :as db]
-            [status-im.ui.screens.add-new.new-public-chat.styles :as styles]
-            [status-im.ui.screens.add-new.styles :as add-new.styles]
-            status-im.utils.db
+            [status-im.i18n-resources :as i18n-resources]
             [status-im.react-native.resources :as resources]
             [status-im.ui.components.colors :as colors]
-            [status-im.i18n-resources :as i18n-resources]
-            [status-im.ui.components.topbar :as topbar])
-  (:require-macros
-   [status-im.utils.slurp :refer [slurp]]
-   [status-im.utils.views :as views]))
+            [status-im.ui.components.react :as react]
+            [quo.core :as quo]
+            [status-im.ui.components.topbar :as topbar]
+            [status-im.ui.screens.add-new.new-public-chat.db :as db]
+            [status-im.ui.screens.add-new.new-public-chat.styles :as styles])
+  (:require-macros [status-im.utils.views :as views]))
 
 (defn- start-chat [topic]
   (re-frame/dispatch [:chat.ui/start-public-chat topic {:navigation-reset? true}])
   (re-frame/dispatch [:set :public-group-topic nil]))
 
-(defn- chat-name-input [topic error]
-  [react/view
-   [react/view (add-new.styles/input-container)
-    [react/text {:style styles/topic-hash} "#"]
-    [react/view common.styles/flex
-     [text-input.view/text-input-with-label
-      {:container           styles/input-container
-       :on-change-text      #(re-frame/dispatch [:set :public-group-topic %])
-       :on-submit-editing   #(when (db/valid-topic? topic) (start-chat topic))
-       :auto-capitalize     :none
-       :auto-focus          false
-       :accessibility-label :chat-name-input
-       ;; Set default-value as otherwise it will
-       ;; be erased in global `onWillBlur` handler
-       :default-value       topic
-       :placeholder         "chat-name"
-       :return-key-type     :go
-       :auto-correct        false}]]]
-   (when error
-     [tooltip/tooltip error styles/tooltip])])
+(defn- hash-icon []
+  [quo/text {:color  :secondary
+             :weight :medium
+             :size   :x-large}
+   "#"])
 
-(defn- public-chat-icon [topic]
-  [react/view styles/public-chat-icon
-   [react/text {:style styles/public-chat-icon-symbol}
-    (first topic)]])
+(defn- chat-name-input [topic error]
+  [quo/text-input
+   {:on-change-text      #(re-frame/dispatch [:set :public-group-topic %])
+    :on-submit-editing   #(when (db/valid-topic? topic) (start-chat topic))
+    :auto-capitalize     :none
+    :auto-focus          false
+    :accessibility-label :chat-name-input
+    :before              {:component [hash-icon]}
+    ;; Set default-value as otherwise it will
+    ;; be erased in global `onWillBlur` handler
+    :default-value       topic
+    :placeholder         "chat-name"
+    :return-key-type     :go
+    :auto-correct        false
+    :error               error}])
 
 (defn render-topic [topic]
   ^{:key topic}

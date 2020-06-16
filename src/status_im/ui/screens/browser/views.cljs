@@ -1,10 +1,10 @@
 (ns status-im.ui.screens.browser.views
-  (:require [cljs.tools.reader.edn :as edn]
-            [re-frame.core :as re-frame]
+  (:require [re-frame.core :as re-frame]
             [reagent.core :as reagent]
             [status-im.browser.core :as browser]
-            [status-im.ethereum.core :as ethereum]
+            [status-im.browser.webview-ref :as webview-ref]
             [status-im.i18n :as i18n]
+            [status-im.ui.components.chat-icon.screen :as chat-icon]
             [status-im.ui.components.colors :as colors]
             [status-im.ui.components.connectivity.view :as connectivity]
             [status-im.ui.components.icons.vector-icons :as icons]
@@ -14,18 +14,15 @@
             [status-im.ui.components.toolbar.view :as toolbar.view]
             [status-im.ui.components.tooltip.views :as tooltip]
             [status-im.ui.components.webview :as components.webview]
+            [status-im.ui.screens.browser.accounts :as accounts]
             [status-im.ui.screens.browser.permissions.views :as permissions.views]
             [status-im.ui.screens.browser.site-blocked.views :as site-blocked.views]
             [status-im.ui.screens.browser.styles :as styles]
+            [status-im.utils.debounce :as debounce]
             [status-im.utils.http :as http]
             [status-im.utils.js-resources :as js-res]
-            [status-im.ui.components.chat-icon.screen :as chat-icon]
-            [status-im.ui.screens.browser.accounts :as accounts]
-            [status-im.utils.debounce :as debounce]
-            [status-im.browser.webview-ref :as webview-ref])
-  (:require-macros
-   [status-im.utils.slurp :refer [slurp]]
-   [status-im.utils.views :as views]))
+            [status-im.utils.contenthash :as contenthash])
+  (:require-macros [status-im.utils.views :as views]))
 
 (defn toolbar-content [url url-original {:keys [secure?]} url-editing?]
   (let [url-text (atom url)]
@@ -33,7 +30,7 @@
      [react/touchable-highlight {:on-press #(re-frame/dispatch [:browser.ui/lock-pressed secure?])}
       (if secure?
         [icons/tiny-icon :tiny-icons/tiny-lock {:color colors/green}]
-        [icons/tiny-icon :tiny-icons/tiny-lock-broken])]
+        [icons/tiny-icon :tiny-icons/tiny-lock-broken {:color colors/dark}])]
      (if url-editing?
        [react/text-input {:on-change-text    #(reset! url-text %)
                           :on-blur           #(re-frame/dispatch [:browser.ui/url-input-blured])
@@ -48,7 +45,7 @@
        [react/touchable-highlight {:style    styles/url-text-container
                                    :on-press #(re-frame/dispatch [:browser.ui/url-input-pressed])}
         [react/text (http/url-host url-original)]])
-     [react/touchable-highlight {:on-press #(.reload @webview-ref/webview-ref)
+     [react/touchable-highlight {:on-press #(.reload ^js @webview-ref/webview-ref)
                                  :accessibility-label :refresh-page-button}
       [icons/icon :main-icons/refresh]]]))
 
@@ -63,12 +60,13 @@
                        (re-frame/dispatch [:browser.ui/remove-browser-pressed browser-id]))))]
    [toolbar-content url url-original browser url-editing?]])
 
-(defn- web-view-error [_ code desc]
+(defn- web-view-error [_ _ desc]
   (reagent/as-element
    [react/view styles/web-view-error
+    [react/image {:style  {:width 140 :height 140 :margin-bottom 16}
+                  :source {:uri (contenthash/url
+                                 "e3010170122001bbe2f5bfba0305a3bdc2047fddc47ee595a591bdee61de6040ffc2456624e1")}}]
     [react/i18n-text {:style styles/web-view-error-text :key :web-view-error}]
-    [react/text {:style styles/web-view-error-text}
-     (str code)]
     [react/text {:style styles/web-view-error-text}
      (str desc)]]))
 
@@ -106,7 +104,7 @@
 ;; should-component-update is called only when component's props are changed,
 ;; that's why it can't be used in `browser`, because `url` comes from subs
 (views/defview browser-component
-  [{:keys [webview error? url browser browser-id unsafe? can-go-back?
+  [{:keys [error? url browser browser-id unsafe? can-go-back?
            can-go-forward? resolving? network-id url-original
            show-permission show-tooltip dapp? name dapps-account]}]
   {:should-component-update (fn [_ _ args]
@@ -132,13 +130,13 @@
                                                        (debounce/debounce-and-dispatch
                                                         [:browser/navigation-state-changed % error?]
                                                         500))
-                                                    ;; Extract event data here due to 
-                                                    ;; https://reactjs.org/docs/events.html#event-pooling
-        :on-message                                 #(re-frame/dispatch [:browser/bridge-message-received (.. % -nativeEvent -data)])
+        ;; Extract event data here due to
+        ;; https://reactjs.org/docs/events.html#event-pooling
+        :on-message                                 #(re-frame/dispatch [:browser/bridge-message-received (.. ^js % -nativeEvent -data)])
         :on-load                                    #(re-frame/dispatch [:browser/loading-started])
         :on-error                                   #(re-frame/dispatch [:browser/error-occured])
         :injected-java-script-before-content-loaded (js-res/ethereum-provider (str network-id))
-        :injected-java-script                       (js-res/webview-js)}])]
+        :injected-java-script                       js-res/webview-js}])]
    [navigation url-original can-go-back? can-go-forward? dapps-account]
    [permissions.views/permissions-panel [(:dapp? browser) (:dapp browser) dapps-account] show-permission]
    (when show-tooltip

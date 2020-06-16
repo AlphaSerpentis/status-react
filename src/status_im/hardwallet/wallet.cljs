@@ -1,11 +1,10 @@
 (ns status-im.hardwallet.wallet
   (:require [status-im.ethereum.core :as ethereum]
             [status-im.utils.fx :as fx]
-            [status-im.ui.screens.wallet.add-new.views :as add-new.views]
             [status-im.hardwallet.common :as common]
             [status-im.constants :as constants]
             [status-im.ethereum.eip55 :as eip55]
-            [status-im.ui.components.bottom-sheet.core :as bottom-sheet]))
+            [status-im.utils.hex :as utils.hex]))
 
 (fx/defn show-pin-sheet
   {:events [:hardwallet/new-account-pin-sheet]}
@@ -14,21 +13,20 @@
    cofx
    {:db (-> db
             (assoc-in [:hardwallet :pin :enter-step] :export-key)
-            (update-in [:hardwallet :pin] dissoc :export-key))}
-   (bottom-sheet/show-bottom-sheet
-    {:view {:content add-new.views/pin
-            :height  256}})))
+            (update-in [:hardwallet :pin] dissoc :export-key)
+            (assoc :hardwallet/new-account-sheet? true))}))
+
+(fx/defn verify-pin-with-delay
+  [cofx]
+  {:utils/dispatch-later
+   ;; We need to give previous sheet some time to be fully hidden 
+   [{:ms 200
+     :dispatch [:wallet.accounts/verify-pin]}]})
 
 (fx/defn hide-pin-sheet
-  {:events [:hardwallet/hide-new-account-pin-sheet]}
-  [cofx]
-  (fx/merge
-   cofx
-   {:utils/dispatch-later
-    ;; We need to give previous sheet some time to be fully hidden 
-    [{:ms 200
-      :dispatch [:wallet.accounts/verify-pin]}]}
-   (bottom-sheet/hide-bottom-sheet)))
+  {:events [:hardwallet/new-account-pin-sheet-hide]}
+  [{:keys [db]}]
+  {:db (assoc db :hardwallet/new-account-sheet? false)})
 
 (fx/defn generate-new-keycard-account
   {:events [:wallet.accounts/generate-new-keycard-account]}
@@ -41,10 +39,14 @@
      (assoc-in
       db [:hardwallet :on-export-success]
       #(vector :wallet.accounts/account-stored
-               {;; Strip leading 04 prefix denoting uncompressed key format
-                :address    (eip55/address->checksum (str "0x" (ethereum/public-key->address (subs % 2))))
-                :public-key (str "0x" %)
-                :path       path}))
+               (let [public-key (utils.hex/normalize-hex %)]
+                 {;; Strip leading 04 prefix denoting uncompressed key format
+                  :address    (eip55/address->checksum
+                               (str "0x"
+                                    (ethereum/public-key->address
+                                     (subs public-key 2))))
+                  :public-key (str "0x" public-key)
+                  :path       path})))
 
      :hardwallet/export-key {:pin pin :pairing pairing :path path}}))
 
@@ -54,6 +56,6 @@
   (common/verify-pin
    cofx
    {:pin-step          :export-key
-    :on-card-connected :wallet.accounts/generate-new-keycard-account
+    :on-card-connected :wallet.accounts/verify-pin
     :on-success        :wallet.accounts/generate-new-keycard-account
     :on-failure        :hardwallet/new-account-pin-sheet}))

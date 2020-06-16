@@ -1,6 +1,5 @@
 (ns status-im.ui.screens.profile.seed.styles
-  (:require [status-im.ui.components.colors :as colors]
-            [status-im.ui.components.styles :as common.styles]))
+  (:require [status-im.ui.components.colors :as colors]))
 
 (def intro-image
   {:margin-top  16
@@ -71,17 +70,6 @@
 (def enter-word-container
   {:flex    1
    :padding 16})
-
-(def enter-word-row
-  {:flex-direction :row})
-
-(def enter-word-label
-  {:font-size 14})
-
-(def enter-word-n
-  {:margin-left 8
-   :font-size   14
-   :color       colors/gray})
 
 (def enter-word-n-description
   {:font-size 14

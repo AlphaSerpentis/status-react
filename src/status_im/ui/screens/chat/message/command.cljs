@@ -1,14 +1,14 @@
 (ns status-im.ui.screens.chat.message.command
   (:require [re-frame.core :as re-frame]
             [status-im.commands.core :as commands]
-            [status-im.ui.components.react :as react]
-            [status-im.ui.components.colors :as colors]
-            [status-im.i18n :as i18n]
             [status-im.constants :as constants]
-            [status-im.utils.money :as money]
             [status-im.ethereum.transactions.core :as transactions]
+            [status-im.i18n :as i18n]
             [status-im.ui.components.chat-icon.screen :as chat-icon]
-            [status-im.ui.components.icons.vector-icons :as vector-icons]))
+            [status-im.ui.components.colors :as colors]
+            [status-im.ui.components.icons.vector-icons :as vector-icons]
+            [status-im.ui.components.react :as react]
+            [status-im.utils.money :as money]))
 
 (defn- final-status? [command-state]
   (or (= command-state constants/command-state-request-address-for-transaction-declined)
@@ -56,7 +56,7 @@
                     :t/address-received)))]])
 
 (defn- command-final-status
-  [command-state direction transaction-type]
+  [command-state _ transaction-type]
   [react/view {:style {:flex-direction :row
                        :height 28
                        :align-items :center
@@ -146,7 +146,7 @@
   [contract value]
   (let [{:keys [symbol icon decimals color] :as token}
         (if (seq contract)
-          (get @(re-frame/subscribe [:wallet/chain-tokens])
+          (get @(re-frame/subscribe [:wallet/all-tokens])
                contract
                transactions/default-erc20-token)
           @(re-frame/subscribe [:ethereum/native-currency]))
@@ -174,21 +174,20 @@
       [react/text {:style {:margin-bottom 2
                            :font-size 20
                            :line-height 24}}
-       (str amount " " (name symbol))]
+       (str (money/to-fixed amount) " " (name symbol))]
       [react/text {:style {:font-size 12
                            :line-height 16
                            :color colors/gray}}
        (str amount-fiat " " code)]]]))
 
 (defn calculate-direction [outgoing command-state]
-  (case command-state
-    (constants/command-state-request-address-for-transaction-accepted
-     constants/command-state-request-address-for-transaction-declined
-     constants/command-state-request-transaction)
+  (if (#{constants/command-state-request-address-for-transaction-accepted
+         constants/command-state-request-address-for-transaction-declined
+         constants/command-state-request-transaction} command-state)
     (if outgoing :incoming :outgoing)
     (if outgoing :outgoing :incoming)))
 
-(defn comand-content
+(defn command-content
   [wrapper {:keys [message-id
                    chat-id
                    outgoing

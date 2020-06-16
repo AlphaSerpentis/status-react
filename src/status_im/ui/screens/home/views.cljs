@@ -22,7 +22,7 @@
 (defn welcome-image-wrapper []
   (let [dimensions (reagent/atom {})]
     (fn []
-      [react/view {:on-layout (fn [e]
+      [react/view {:on-layout (fn [^js e]
                                 (reset! dimensions (bean/->clj (-> e .-nativeEvent .-layout))))
                    :style     {:align-items     :center
                                :justify-content :center
@@ -41,7 +41,9 @@
     [react/i18n-text {:style styles/welcome-text-description
                       :key   :welcome-to-status-description}]]
    [react/view {:align-items :center :margin-bottom 50}
-    [components.common/button {:on-press            #(re-frame/dispatch [:navigate-reset :tabs])
+    [components.common/button {:on-press
+                               #(re-frame/dispatch [:navigate-reset {:index  0
+                                                                     :routes [{:name :tabs}]}])
                                :accessibility-label :lets-go-button
                                :label               (i18n/label :t/lets-go)}]]])
 
@@ -59,8 +61,7 @@
                              :width    44 :height 44 :align-items :center :justify-content :center}
        :on-press            #(re-frame/dispatch [:multiaccounts.ui/hide-home-tooltip])
        :accessibility-label :hide-home-button}
-      [react/view {:style (styles/close-icon-container)}
-       [icons/icon :main-icons/close {:color colors/white-persist}]]]]]
+      [icons/icon :main-icons/close-circle {:color colors/gray}]]]]
    [react/i18n-text {:style styles/no-chats-text :key :chat-and-transact}]
    [react/view {:align-items :center :margin-top 16}
     [button/button {:label               :t/invite-friends
@@ -85,36 +86,40 @@
 (defonce search-active? (reagent/atom false))
 
 (defn search-input-wrapper [search-filter]
-  [search-input/search-input
-   {:search-active?         search-active?
-    :search-filter          search-filter
-    :on-cancel              #(re-frame/dispatch [:search/home-filter-changed nil])
-    :on-focus               (fn [search-filter]
-                              (when-not search-filter
-                                (re-frame/dispatch [:search/home-filter-changed ""])))
-    :on-change              (fn [text]
-                              (re-frame/dispatch [:search/home-filter-changed text]))}])
+  [react/view {:padding-horizontal 16
+               :padding-vertical   10}
+   [search-input/search-input
+    {:search-active? search-active?
+     :search-filter  search-filter
+     :on-cancel      #(re-frame/dispatch [:search/home-filter-changed nil])
+     :on-focus       (fn [search-filter]
+                       (when-not search-filter
+                         (re-frame/dispatch [:search/home-filter-changed ""])))
+     :on-change      (fn [text]
+                       (re-frame/dispatch [:search/home-filter-changed text]))}]])
 
 (views/defview chats-list []
   (views/letsubs [loading? [:chats/loading?]
-                  {:keys [chats all-home-items search-filter]} [:home-items]
+                  {:keys [chats search-filter]} [:home-items]
                   {:keys [hide-home-tooltip?]} [:multiaccount]]
     (if loading?
       [react/view {:flex 1 :align-items :center :justify-content :center}
        [react/activity-indicator {:animating true}]]
-      (if (and (empty? all-home-items) hide-home-tooltip? (not @search-active?))
+      (if (and (empty? chats)
+               (empty? search-filter)
+               hide-home-tooltip?
+               (not @search-active?))
         [welcome-blank-page]
-        (let [data (if @search-active? chats all-home-items)]
-          [list/flat-list
-           {:key-fn                         first
-            :keyboard-should-persist-taps   :always
-            :data                           data
-            :render-fn                      inner-item/home-list-item
-            :header                         (when (or (not-empty data) @search-active?)
-                                              [search-input-wrapper search-filter])
-            :footer                         (if (and (not hide-home-tooltip?) (not @search-active?))
-                                              [home-tooltip-view]
-                                              [react/view {:height 68}])}])))))
+        [list/flat-list
+         {:key-fn                         :chat-id
+          :keyboard-should-persist-taps   :always
+          :data                           chats
+          :render-fn                      (fn [home-item] [inner-item/home-list-item home-item])
+          :header                         (when (or (seq chats) @search-active?)
+                                            [search-input-wrapper search-filter])
+          :footer                         (if (and (not hide-home-tooltip?) (not @search-active?))
+                                            [home-tooltip-view]
+                                            [react/view {:height 68}])}]))))
 
 (views/defview plus-button []
   (views/letsubs [logging-in? [:multiaccounts/login]]

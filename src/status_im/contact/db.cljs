@@ -1,63 +1,9 @@
 (ns status-im.contact.db
-  (:require [cljs.spec.alpha :as spec]
-            [clojure.set :as cset]
+  (:require [clojure.set :as clojure.set]
+            [clojure.string :as clojure.string]
             [status-im.ethereum.core :as ethereum]
-            [status-im.tribute-to-talk.db :as tribute-to-talk.db]
             [status-im.utils.gfycat.core :as gfycat]
-            [status-im.utils.identicon :as identicon]
-            status-im.utils.db))
-
-;;;; DB
-
-;;Contact
-
-(spec/def :contact/last-online (spec/nilable int?))
-(spec/def :contact/last-updated (spec/nilable int?))
-(spec/def :contact/name (spec/nilable string?))
-(spec/def :contact/public-key :global/not-empty-string)
-(spec/def :contact/photo-path (spec/nilable string?))
-
-;; contact/blocked: the user is blocked
-;; contact/added: the user was added to the contacts and a contact request was sent
-;; contact/request-received: the user sent a contact request
-(spec/def :contact/system-tags (spec/coll-of keyword? :kind set?))
-(spec/def :contact/tags (spec/coll-of string? :kind set?))
-(spec/def :contact/tribute (spec/nilable int?))
-(spec/def :contact/tribute-transaction (spec/nilable string?))
-
-(spec/def :contact/contact (spec/keys  :req-un [:contact/public-key
-                                                :contact/system-tags]
-                                       :opt-un [:contact/name
-                                                :contact/address
-                                                :contact/photo-path
-                                                :contact/last-online
-                                                :contact/last-updated
-                                                :contact/tags
-                                                :contact/tribute
-                                                :contact/tribute-transaction]))
-
-;;Contact list ui props
-(spec/def :contact-list-ui/edit? boolean?)
-
-;;Contacts ui props
-(spec/def :contacts-ui/edit? boolean?)
-
-(spec/def :contacts/contacts (spec/nilable (spec/map-of :global/not-empty-string :contact/contact)))
-;;public key of new contact during adding this new contact
-(spec/def :contacts/new-identity (spec/nilable map?))
-;;on showing this contact's profile (andrey: better to move into profile ns)
-(spec/def :contacts/identity (spec/nilable :global/not-empty-string))
-(spec/def :contacts/list-ui-props (spec/nilable (spec/keys :opt-un [:contact-list-ui/edit?])))
-(spec/def :contacts/ui-props (spec/nilable (spec/keys :opt-un [:contacts-ui/edit?])))
-;;used in modal list (for example for wallet)
-(spec/def :contacts/click-handler (spec/nilable fn?))
-;;used in modal list (for example for wallet)
-(spec/def :contacts/click-action (spec/nilable #{:send :request}))
-;;used in modal list (for example for wallet)
-(spec/def :contacts/click-params (spec/nilable map?))
-
-(spec/def :contact/new-tag string?)
-(spec/def :ui/contact (spec/keys :opt [:contact/new-tag]))
+            [status-im.utils.identicon :as identicon]))
 
 (defn public-key->new-contact [public-key]
   (let [alias (gfycat/generate-gfy public-key)]
@@ -107,8 +53,8 @@
   [members admins contacts {:keys [public-key] :as current-account}]
   (let [current-contact (-> current-account
                             (select-keys  [:name :preferred-name :public-key :photo-path])
-                            (cset/rename-keys {:name           :alias
-                                               :preferred-name :name}))
+                            (clojure.set/rename-keys {:name           :alias
+                                                      :preferred-name :name}))
         all-contacts    (assoc contacts public-key current-contact)]
     (->> members
          (map #(or (get all-contacts %)
@@ -165,18 +111,28 @@
   ([db public-key]
    (active? (get-in db [:contacts/contacts public-key]))))
 
+;;TODO TTT
+#_(defn enrich-ttt-contact
+    [{:keys [system-tags tribute-to-talk] :as contact}]
+    (let [tribute (:snt-amount tribute-to-talk)
+          tribute-status (tribute-to-talk.db/tribute-status contact)
+          tribute-label (tribute-to-talk.db/status-label tribute-status tribute)]
+      (-> contact
+          (assoc-in [:tribute-to-talk :tribute-status] tribute-status)
+          (assoc-in [:tribute-to-talk :tribute-label] tribute-label)
+          (assoc :pending? (pending? contact)
+                 :blocked? (blocked? contact)
+                 :active? (active? contact)
+                 :added? (contains? system-tags :contact/added)))))
+
 (defn enrich-contact
-  [{:keys [system-tags tribute-to-talk] :as contact}]
-  (let [tribute (:snt-amount tribute-to-talk)
-        tribute-status (tribute-to-talk.db/tribute-status contact)
-        tribute-label (tribute-to-talk.db/status-label tribute-status tribute)]
-    (-> contact
-        (assoc-in [:tribute-to-talk :tribute-status] tribute-status)
-        (assoc-in [:tribute-to-talk :tribute-label] tribute-label)
-        (assoc :pending? (pending? contact)
-               :blocked? (blocked? contact)
-               :active? (active? contact)
-               :added? (contains? system-tags :contact/added)))))
+  [{:keys [system-tags] :as contact}]
+  (-> contact
+      (dissoc :ens-verified-at :ens-verification-retries)
+      (assoc :pending? (pending? contact)
+             :blocked? (blocked? contact)
+             :active? (active? contact)
+             :added? (contains? system-tags :contact/added))))
 
 (defn enrich-contacts
   [contacts]

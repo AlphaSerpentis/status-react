@@ -27,9 +27,6 @@
 
 (def themes {:dark dark :light light})
 
-;; TRANSPARENT
-(def transparent "transparent")
-
 ;; WHITE
 (def white (:white light))
 (def white-persist (:white light))                          ;; this doesn't with theme
@@ -50,6 +47,7 @@
 (def black-transparent-40-persist (alpha black 0.4))
 (def black-transparent-50 (alpha black 0.5))
 (def black-light "#2d2d2d")                                 ;; sign-with-keycard-button
+(def black-transparent-86 "rgba(0, 0, 0, 0.86)")
 
 ;; DARK GREY
 (def gray (:gray light))                                    ;; Dark grey, used as a background for a light foreground and as section header and secondary text color

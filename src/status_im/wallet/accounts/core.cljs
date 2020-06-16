@@ -10,7 +10,7 @@
             [status-im.native-module.core :as status]
             [status-im.ui.components.colors :as colors]
             [status-im.ui.components.list-selection :as list-selection]
-            [status-im.ui.screens.navigation :as navigation]
+            [status-im.navigation :as navigation]
             [status-im.utils.fx :as fx]
             [status-im.utils.types :as types]
             [status-im.wallet.core :as wallet]
@@ -18,7 +18,8 @@
             [status-im.utils.security :as security]
             [status-im.multiaccounts.recover.core :as recover]
             [status-im.ethereum.mnemonic :as mnemonic]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log]
+            [status-im.wallet.prices :as prices]))
 
 (fx/defn start-adding-new-account
   {:events [:wallet.accounts/start-adding-new-account]}
@@ -50,15 +51,13 @@
                              :type       type
                              :path       path}])))))
 
-(def dec-pass-error "could not decrypt key with given password")
-
 (defn normalize-path [path]
   (if (string/starts-with? path "m/")
     (str constants/path-wallet-root
          "/" (last (string/split path "/")))
     path))
 
-(defn derive-and-store-account [path hashed-password type]
+(defn derive-and-store-account [path hashed-password type accounts]
   (fn [value]
     (let [{:keys [id error]} (types/json->clj value)]
       (if error
@@ -66,22 +65,25 @@
         (status/multiaccount-derive-addresses
          id
          [path]
-         (fn [_]
-           (status/multiaccount-store-derived
-            id
-            [path]
-            hashed-password
-            (fn [result]
-              (let [{:keys [error] :as result} (types/json->clj result)
-                    {:keys [publicKey address]} (get result (keyword path))]
-                (if error
-                  (re-frame/dispatch [::new-account-error :account-error error])
-                  (re-frame/dispatch
-                   [:wallet.accounts/account-stored
-                    {:address    address
-                     :public-key publicKey
-                     :type       type
-                     :path       (normalize-path path)}])))))))))))
+         (fn [derived]
+           (let [derived-address (get-in (types/json->clj derived) [(keyword path) :address])]
+             (if (some #(= derived-address (get % :address)) accounts)
+               (re-frame/dispatch [::new-account-error :account-error (i18n/label :t/account-exists-title)])
+               (status/multiaccount-store-derived
+                id
+                [path]
+                hashed-password
+                (fn [result]
+                  (let [{:keys [error] :as result} (types/json->clj result)
+                        {:keys [publicKey address]} (get result (keyword path))]
+                    (if error
+                      (re-frame/dispatch [::new-account-error :account-error error])
+                      (re-frame/dispatch
+                       [:wallet.accounts/account-stored
+                        {:address    address
+                         :public-key publicKey
+                         :type       type
+                         :path       (normalize-path path)}])))))))))))))
 
 (def pass-error "cannot retrieve a valid key for a given account: could not decrypt key with given password")
 
@@ -106,20 +108,20 @@
 
 (re-frame/reg-fx
  ::generate-account
- (fn [{:keys [derivation-info hashed-password]}]
+ (fn [{:keys [derivation-info hashed-password accounts]}]
    (let [{:keys [address path]} derivation-info]
      (status/multiaccount-load-account
       address
       hashed-password
-      (derive-and-store-account path hashed-password :generated)))))
+      (derive-and-store-account path hashed-password :generated accounts)))))
 
 (re-frame/reg-fx
  ::import-account-seed
- (fn [{:keys [passphrase hashed-password]}]
+ (fn [{:keys [passphrase hashed-password accounts]}]
    (status/multiaccount-import-mnemonic
     (mnemonic/sanitize-passphrase (security/unmask passphrase))
     ""
-    (derive-and-store-account constants/path-default-wallet hashed-password :seed))))
+    (derive-and-store-account constants/path-default-wallet hashed-password :seed accounts))))
 
 (re-frame/reg-fx
  ::import-account-private-key
@@ -131,17 +133,13 @@
 (fx/defn generate-new-account
   [{:keys [db]} hashed-password]
   (let [wallet-root-address (get-in db [:multiaccount :wallet-root-address])
-        path-num            (inc (get-in db [:multiaccount :latest-derived-path]))]
+        path-num            (inc (get-in db [:multiaccount :latest-derived-path]))
+        accounts            (:multiaccount/accounts db)]
     {:db                (assoc-in db [:add-account :step] :generating)
-     ::generate-account {:derivation-info (if wallet-root-address
-                                            ;; Use the walllet-root-address for stored on disk keys
-                                            ;; This needs to be the RELATIVE path to the key used to derive
-                                            {:path    (str "m/" path-num)
-                                             :address wallet-root-address}
-                                            ;; Fallback on the master account for keycards, use the absolute path
-                                            {:path    (str constants/path-wallet-root "/" path-num)
-                                             :address (get-in db [:multiaccount :address])})
-                         :hashed-password hashed-password}}))
+     ::generate-account {:derivation-info {:path    (str "m/" path-num)
+                                           :address wallet-root-address}
+                         :hashed-password hashed-password
+                         :accounts accounts}}))
 
 (fx/defn import-new-account-seed
   [{:keys [db]} passphrase hashed-password]
@@ -156,8 +154,11 @@
   (let [error (:error (types/json->clj phrase-warnings))]
     (if-not (string/blank? error)
       (new-account-error cofx :account-error error)
-      {::import-account-seed {:passphrase      passphrase
-                              :hashed-password hashed-password}})))
+      (let [{:keys [db]} cofx
+            accounts (:multiaccount/accounts db)]
+        {::import-account-seed {:passphrase      passphrase
+                                :hashed-password hashed-password
+                                :accounts        accounts}}))))
 
 (fx/defn import-new-account-private-key
   [{:keys [db]} private-key hashed-password]
@@ -194,7 +195,7 @@
                 {:db (update-in db [:add-account :account] merge account)}
                 (save-new-account)
                 (wallet/update-balances nil)
-                (wallet/update-prices)
+                (prices/update-prices)
                 (navigation/navigate-back)))))
 
 (fx/defn add-watch-account
@@ -209,7 +210,7 @@
   (let [{:keys [error]} (types/json->clj result)]
     (if (not (string/blank? error))
       (new-account-error cofx :password-error error)
-      (let [{:keys [type step seed private-key]} (:add-account db)]
+      (let [{:keys [type seed private-key]} (:add-account db)]
         (case type
           :seed
           (import-new-account-seed cofx seed hashed-password)
@@ -242,7 +243,7 @@
 
 (fx/defn save-account
   {:events [:wallet.accounts/save-account]}
-  [{:keys [db] :as cofx} account {:keys [name color]}]
+  [{:keys [db]} account {:keys [name color]}]
   (let [accounts (:multiaccount/accounts db)
         new-account  (cond-> account
                        name (assoc :name name)
@@ -265,14 +266,13 @@
                                  :on-success #()}]
                :db (-> db
                        (assoc :multiaccount/accounts new-accounts)
-                       (assoc-in [:wallet :accounts deleted-address] nil))}
+                       (update-in [:wallet :accounts] dissoc deleted-address))}
               (navigation/navigate-to-cofx :wallet nil))))
 
 (fx/defn view-only-qr-scanner-result
   {:events [:wallet.add-new/qr-scanner-result]}
   [{db :db :as cofx} data _]
-  (let [address (or (when (ethereum/address? data) data)
-                    (:address (eip681/parse-uri data)))]
+  (let [address (:address (eip681/parse-uri data))]
     (fx/merge cofx
               (merge {:db (-> db
                               (assoc-in [:add-account :scanned-address] address)

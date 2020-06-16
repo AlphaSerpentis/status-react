@@ -4,8 +4,7 @@
             [status-im.ui.components.react :as react]
             [status-im.ui.screens.chat.styles.photos :as photos]
             [status-im.utils.platform :as platform]
-            [status-im.ui.components.typography :as typography]
-            [status-im.utils.styles :as styles]))
+            [status-im.ui.components.typography :as typography]))
 
 (defn style-message-text
   [outgoing]
@@ -25,7 +24,7 @@
    :align-items    :center})
 
 (defn message-body
-  [{:keys [outgoing] :as message}]
+  [{:keys [outgoing]}]
   (let [align     (if outgoing :flex-end :flex-start)
         direction (if outgoing :row-reverse :row)]
     {:flex-direction direction
@@ -54,12 +53,6 @@
          (when justify-timestamp? {:position              :absolute
                                    :bottom                9 ; 6 Bubble bottom, 3 message baseline
                                    (if rtl? :left :right) 12})))
-
-(def selected-message
-  {:margin-top  18
-   :margin-left 40
-   :font-size   12
-   :color       colors/text-gray})
 
 (defn message-wrapper-base [message]
   (merge {:flex-direction   :column}
@@ -122,15 +115,6 @@
   {:padding-top  3
    :padding-left 3})
 
-(def message-activity-indicator
-  {:padding-top 4})
-
-(defn text-message
-  [collapsed? outgoing]
-  (assoc (style-message-text outgoing)
-         :line-height 22
-         :margin-bottom (if collapsed? 2 0)))
-
 (defn emoji-message
   [{:keys [incoming-group]}]
   {:font-size    28
@@ -165,10 +149,6 @@
    (when (= content-type constants/content-type-emoji)
      {:flex-direction :row})))
 
-(def play-image
-  {:width  33
-   :height 33})
-
 (def status-container
   {:padding-horizontal 5})
 
@@ -176,10 +156,6 @@
   {:margin-top  9
    :font-size   14
    :color       colors/gray})
-
-(defn message-container [window-width]
-  {:position :absolute
-   :width    window-width})
 
 (defn message-author-name [chosen?]
   {:font-size           (if chosen? 13 12)
@@ -299,34 +275,41 @@
           :font-family monospace-fonts
           :color colors/white))
 
-(def default-blockquote-style
+(defn default-blockquote-style []
   {:style {:border-left-width 2
            :padding-left 3
            :border-left-color colors/gray-transparent-40}})
 
-(def outgoing-blockquote-style
-  (update default-blockquote-style :style
+(defn outgoing-blockquote-style []
+  (update (default-blockquote-style) :style
           assoc
-          :border-left-color colors/white-transparent))
+          :border-left-color colors/white-transparent-70-persist))
 
 (defn blockquote-style [outgoing]
   (if outgoing
-    outgoing-blockquote-style
-    default-blockquote-style))
+    (outgoing-blockquote-style)
+    (default-blockquote-style)))
 
-(def default-blockquote-text-style
+(defn default-blockquote-text-style []
   (update (default-text-style) :style
           assoc
           :line-height 19
           :font-size 14
           :color colors/black-transparent-50))
 
-(def outgoing-blockquote-text-style
-  (update default-blockquote-text-style :style
+(defn outgoing-blockquote-text-style []
+  (update (default-blockquote-text-style) :style
           assoc
           :color colors/white-transparent-70-persist))
 
 (defn blockquote-text-style [outgoing]
   (if outgoing
-    outgoing-blockquote-text-style
-    default-blockquote-text-style))
+    (outgoing-blockquote-text-style)
+    (default-blockquote-text-style)))
+
+(defn image-content [outgoing]
+  {:overflow                   :hidden
+   :border-top-left-radius     16
+   :border-top-right-radius    16
+   :border-bottom-left-radius  (if outgoing 16 4)
+   :border-bottom-right-radius (if outgoing 4 16)})

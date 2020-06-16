@@ -1,62 +1,56 @@
-{ config, lib, callPackage, mkShell, mergeSh, androidenv, flock, lsof, openjdk,
-  status-go, localMavenRepoBuilder, projectNodePackage }:
+{ lib, pkgs, deps, callPackage, mkShell
+, status-go, androidPkgs, androidShell }:
 
 let
-  gradle = callPackage ./gradle.nix { };
-  androidEnv = callPackage ./android-env.nix { };
-  leinProjectDeps = import ../../lein/lein-project-deps.nix { };
+  # For generating a temporary keystore for local development
+  keystore = callPackage ./keystore.nix { };
 
   # Import a jsbundle compiled out of clojure codebase
-  jsbundle = callPackage ./jsbundle/default.nix {
-    inherit leinProjectDeps localMavenRepoBuilder projectNodePackage;
-  };
+  jsbundle = callPackage ./jsbundle { };
 
   # Import a patched version of watchman (important for sandboxed builds on macOS)
   watchmanFactory = callPackage ./watchman.nix { };
 
-  # Import a local patched version of node_modules, together with a local version of the Maven repo
-  mavenAndNpmDeps = callPackage ./maven-and-npm-deps {
-    inherit gradle localMavenRepoBuilder projectNodePackage;
-  };
-
   # TARGETS
-  release = callPackage ./targets/release-android.nix {
-    inherit config gradle mavenAndNpmDeps jsbundle status-go watchmanFactory;
-    androidEnvShellHook = androidEnv.shell.shellHook;
+  release = callPackage ./release.nix {
+    inherit keystore jsbundle status-go watchmanFactory;
   };
-
-  generate-maven-and-npm-deps-shell = callPackage ./maven-and-npm-deps/maven/shell.nix {
-    inherit gradle projectNodePackage status-go;
-    androidEnvShellHook = androidEnv.shell.shellHook;
-  };
-
-  buildInputs = [
-    mavenAndNpmDeps.drv openjdk gradle
-    lsof  # used in start-react-native.sh
-    flock # used in reset-node_modules.sh
-  ];
 
 in {
   # TARGETS
-  inherit release jsbundle generate-maven-and-npm-deps-shell buildInputs;
-  inherit (androidEnv) androidComposition;
+  inherit keystore release jsbundle;
 
-  shell = mergeSh
-    (mkShell {
-      inherit buildInputs;
-      inputsFrom = [ release gradle ];
-      shellHook = ''
+  shell = mkShell {
+    buildInputs = with pkgs; [
+      openjdk
+      gradle
+      lsof  # used in start-react-native.sh
+      flock # used in nix/scripts/node_modules.sh
+    ];
+
+    inputsFrom = [
+      release
+      androidShell
+    ];
+
+    shellHook = ''
+      export ANDROID_SDK_ROOT="${androidPkgs}"
+      export ANDROID_NDK_ROOT="${androidPkgs}/ndk-bundle"
+
+      export STATUS_NIX_MAVEN_REPO="${deps.gradle}"
+
+      # required by some makefile targets
+      export STATUS_GO_ANDROID_LIBDIR=${status-go}
+
+      {
+        cd "$STATUS_REACT_HOME" 
+
+        # Set up symlinks to mobile enviroment in project root 
+        ln -sf ./mobile/js_files/* ./
+
         # check if node modules changed and if so install them
-        $STATUS_REACT_HOME/nix/mobile/reset-node_modules.sh \
-          "${mavenAndNpmDeps.drv}/project"
-      '';
-    })
-    (lib.catAttrs "shell" [ status-go mavenAndNpmDeps androidEnv ]);
-
-  env = {
-    shell = mkShell {
-      buildInputs = [ androidEnv.drv ];
-      inherit (androidEnv.shell) shellHook;
-    };
+        $STATUS_REACT_HOME/nix/scripts/node_modules.sh ${deps.nodejs-patched}
+      }
+    '';
   };
 }

@@ -1,85 +1,100 @@
 (ns status-im.ui.screens.intro.views
-  (:require-macros [status-im.utils.views :refer [defview letsubs]])
-  (:require [status-im.ui.components.react :as react]
-            [re-frame.core :as re-frame]
-            [status-im.react-native.resources :as resources]
-            [status-im.privacy-policy.core :as privacy-policy]
-            [status-im.utils.utils :as utils]
-            [status-im.multiaccounts.create.core :refer [step-kw-to-num]]
-            [status-im.ui.components.icons.vector-icons :as vector-icons]
-            [status-im.utils.identicon :as identicon]
-            [status-im.ui.components.radio :as radio]
-            [status-im.ui.components.text-input.view :as text-input]
-            [taoensso.timbre :as log]
-            [status-im.utils.gfycat.core :as gfy]
-            [status-im.ui.components.colors :as colors]
+  (:require [re-frame.core :as re-frame]
             [reagent.core :as r]
+            [status-im.constants :as constants]
+            [status-im.i18n :as i18n]
+            [status-im.multiaccounts.create.core :refer [step-kw-to-num]]
+            [status-im.privacy-policy.core :as privacy-policy]
+            [status-im.react-native.resources :as resources]
+            [status-im.ui.components.colors :as colors]
             [status-im.ui.components.common.common :as components.common]
+            [status-im.ui.components.icons.vector-icons :as vector-icons]
+            [status-im.ui.components.radio :as radio]
+            [status-im.ui.components.react :as react]
+            [status-im.ui.components.topbar :as topbar]
             [status-im.ui.screens.intro.styles :as styles]
+            [status-im.utils.config :as config]
+            [status-im.utils.gfycat.core :as gfy]
+            [status-im.utils.identicon :as identicon]
             [status-im.utils.platform :as platform]
             [status-im.utils.security :as security]
-            [status-im.i18n :as i18n]
-            [status-im.constants :as constants]
-            [status-im.utils.config :as config]
-            [status-im.utils.platform :as platform]
-            [status-im.ui.components.topbar :as topbar]))
+            [quo.core :as quo]
+            [status-im.utils.utils :as utils])
+  (:require-macros [status-im.utils.views :refer [defview letsubs]]))
 
-(defn dots-selector [{:keys [on-press n selected color]}]
+(defn dots-selector [{:keys [n selected color]}]
   [react/view {:style (styles/dot-selector n)}
    (doall
     (for [i (range n)]
       ^{:key i}
       [react/view {:style (styles/dot color (selected i))}]))])
 
-(defn intro-viewer [slides window-height]
+(defn intro-viewer [slides window-height _]
   (let [scroll-x (r/atom 0)
         scroll-view-ref (atom nil)
         width (r/atom 0)
         height (r/atom 0)
+        text-height (r/atom 0)
+        text-temp-height (atom 0)
+        text-temp-timer (atom nil)
         bottom-margin (if (> window-height 600) 32 16)]
-    (fn []
-      [react/view {:style {:align-items :center
-                           :flex 1
-                           :margin-bottom bottom-margin
-                           :justify-content :flex-end}
-                   :on-layout (fn [e]
-                                (reset! width (-> e .-nativeEvent .-layout .-width)))}
-       [react/scroll-view {:horizontal true
-                           :paging-enabled true
-                           :ref #(reset! scroll-view-ref %)
-                           :shows-vertical-scroll-indicator false
-                           :shows-horizontal-scroll-indicator false
-                           :pinch-gesture-enabled false
-                           :on-scroll #(let [x (.-nativeEvent.contentOffset.x %)]
-                                         (reset! scroll-x x))
-                           :style {;:width @width
-                                   :margin-bottom bottom-margin}}
-        (doall
-         (for [s slides]
-           ^{:key (:title s)}
-           [react/view {:style {:flex 1
-                                :width @width
-                                :justify-content :flex-end
-                                :align-items :center
-                                :padding-horizontal 32}}
-            (let [margin 32
-                  size (min @width @height) #_(- (min @width @height) #_(* 2 margin))]
-              [react/view {:style {:flex 1}
-                           :on-layout (fn [e]
-                                        (reset! height (-> e .-nativeEvent .-layout .-height)))}
-               [react/image {:source (:image s)
-                             :resize-mode :contain
-                             :style {:width size
-                                     :height size}}]])
-            [react/i18n-text {:style styles/wizard-title :key (:title s)}]
-            [react/i18n-text {:style styles/wizard-text
-                              :key   (:text s)}]]))]
-       (let [selected (hash-set (quot (int @scroll-x) (int @width)))]
-         [dots-selector {:selected selected :n (count slides)
-                         :color colors/blue}])])))
+    (fn [_ _ view-id]
+      (let [current-screen? (or (nil? view-id) (= view-id :intro))]
+        [react/view {:style {:align-items :center
+                             :flex 1
+                             :margin-bottom bottom-margin
+                             :justify-content :flex-end}
+                     :on-layout (fn [^js e]
+                                  (when current-screen?
+                                    (reset! width (-> e .-nativeEvent .-layout .-width))))}
+         [react/scroll-view {:horizontal true
+                             :paging-enabled true
+                             :ref #(reset! scroll-view-ref %)
+                             :shows-vertical-scroll-indicator false
+                             :shows-horizontal-scroll-indicator false
+                             :pinch-gesture-enabled false
+                             :on-scroll #(let [^js x (.-nativeEvent.contentOffset.x ^js %)]
+                                           (reset! scroll-x x))
+                             :style {:margin-bottom bottom-margin}}
+          (doall
+           (for [s slides]
+             ^{:key (:title s)}
+             [react/view {:style {:flex 1
+                                  :width @width
+                                  :justify-content :flex-end
+                                  :align-items :center
+                                  :padding-horizontal 32}}
+              (let [size (min @width @height)]
+                [react/view {:style {:flex 1}
+                             :on-layout (fn [^js e]
+                                          (let [new-height (-> e .-nativeEvent .-layout .-height)]
+                                            (when current-screen?
+                                              (swap! height #(if (pos? %) (min % new-height) new-height)))))}
+                 [react/image {:source (:image s)
+                               :resize-mode :contain
+                               :style {:width size
+                                       :height size}}]])
+              [react/i18n-text {:style styles/wizard-title :key (:title s)}]
+              [react/text {:style (styles/wizard-text-with-height @text-height)
+                           :on-layout
+                           (fn [^js e]
+                             (let [new-height (-> e .-nativeEvent .-layout .-height)]
+                               (when (and current-screen?
+                                          (not= new-height @text-temp-height)
+                                          (not (zero? new-height))
+                                          (< new-height 200))
+                                 (swap! text-temp-height #(if (pos? %) (max % new-height) new-height))
+                                 (when @text-temp-timer (js/clearTimeout @text-temp-timer))
+                                 (reset! text-temp-timer
+                                         (js/setTimeout #(reset! text-height @text-temp-height) 500)))))}
+               (i18n/label (:text s))]]))]
+         (let [selected (hash-set (quot (int @scroll-x) (int @width)))]
+           [dots-selector {:selected selected :n (count slides)
+                           :color colors/blue}])]))))
 
 (defview intro []
-  (letsubs  [{window-height :height} [:dimensions/window]]
+  (letsubs  [{window-height :height} [:dimensions/window]
+             view-id [:view-id]]
     [react/view {:style styles/intro-view}
      [intro-viewer [{:image (resources/get-theme-image :chat)
                      :title :intro-title1
@@ -89,7 +104,7 @@
                      :text :intro-text2}
                     {:image (resources/get-theme-image :browser)
                      :title :intro-title3
-                     :text :intro-text3}] window-height]
+                     :text :intro-text3}] window-height view-id]
      [react/view styles/buttons-container
       [components.common/button {:button-style (assoc styles/bottom-button :margin-bottom 16)
                                  :on-press     #(re-frame/dispatch [:multiaccounts.create.ui/intro-wizard])
@@ -108,7 +123,7 @@
 (defn generate-key []
   (let [dimensions (r/atom {})]
     (fn []
-      [react/view {:on-layout  (fn [e]
+      [react/view {:on-layout  (fn [^js e]
                                  (reset! dimensions (js->clj (-> e .-nativeEvent .-layout) :keywordize-keys true)))
                    :style {:align-items :center
                            :justify-content :center
@@ -166,8 +181,13 @@
        (i18n/label type)]]
      [react/touchable-highlight
       {:accessibility-label (keyword (str "select-storage-" type))
-       :on-press #(re-frame/dispatch [:intro-wizard/on-key-storage-selected (if (and config/hardwallet-enabled?
-                                                                                     platform/android?) type :default)])}
+       :on-press #(re-frame/dispatch
+                   [:intro-wizard/on-key-storage-selected
+                    (if (and config/hardwallet-enabled?
+                             (or platform/android?
+                                 config/keycard-test-menu-enabled?))
+                      type
+                      :default)])}
       [react/view (assoc (styles/list-item selected?)
                          :align-items :flex-start
                          :padding-top 16
@@ -186,7 +206,7 @@
          (i18n/label desc)]]
        [radio/radio selected?]]]]))
 
-(defn select-key-storage [{:keys [selected-storage-type view-height]}]
+(defn select-key-storage [{:keys [selected-storage-type]}]
   (let [storage-types [{:type        :default
                         :icon        :main-icons/mobile
                         :icon-width  24
@@ -215,24 +235,23 @@
                             :max-height 16}}]
        [storage-entry (second storage-types) selected-storage-type]]]]))
 
-(defn password-container [confirm-failure? view-width]
+(defn password-container [confirm-failure? _]
   (let [horizontal-margin 16]
-    [react/view {:style {:flex 1
-                         :justify-content :space-between
-                         :align-items :center :margin-horizontal horizontal-margin}}
-     [react/view {:style {:justify-content :center :flex 1}}
+    [react/view {:style {:flex              1
+                         :justify-content   :space-between
+                         :margin-horizontal horizontal-margin}}
+     [react/view
       [react/text {:style (assoc styles/wizard-text :color colors/red
                                  :margin-bottom 16)}
-       (if confirm-failure? (i18n/label :t/password_error1) " ")]
-
-      [react/text-input {:secure-text-entry true
-                         :auto-capitalize :none
-                         :auto-focus true
-                         :accessibility-label :password-input
-                         :text-align :center
-                         :placeholder ""
-                         :style (styles/password-text-input (- view-width (* 2 horizontal-margin)))
-                         :on-change-text #(re-frame/dispatch [:intro-wizard/code-symbol-pressed %])}]]
+       (if confirm-failure? (i18n/label :t/password_error1) " ")]]
+     [react/view {:padding 16}
+      [quo/text-input {:secure-text-entry   true
+                       :auto-capitalize     :none
+                       :auto-focus          true
+                       :show-cancel         false
+                       :accessibility-label :password-input
+                       :placeholder         ""
+                       :on-change-text      #(re-frame/dispatch [:intro-wizard/code-symbol-pressed %])}]]
      [react/text {:style (assoc styles/wizard-text :margin-bottom 16)} (i18n/label :t/password-description)]]))
 
 (defn create-code [{:keys [confirm-failure? view-width]}]
@@ -252,7 +271,7 @@
 (defn bottom-bar [{:keys [step weak-password? encrypt-with-password?
                           forward-action
                           next-button-disabled?
-                          processing? existing-account?] :as wizard-state}]
+                          processing? existing-account?]}]
   [react/view {:style {:margin-bottom (if (or (#{:choose-key :select-key-storage
                                                  :enter-phrase :recovery-success} step)
                                               (and (#{:create-code :confirm-code} step)
@@ -347,69 +366,45 @@
                             next-button-disabled?
                             passphrase-error]}]
   [react/keyboard-avoiding-view {:flex             1
-                                 :justify-content  :flex-start
                                  :background-color colors/white}
-   [text-input/text-input-with-label
-    {:on-change-text      #(re-frame/dispatch [:multiaccounts.recover/enter-phrase-input-changed (security/mask-data %)])
-     :auto-focus          true
-     :error               (when passphrase-error (i18n/label passphrase-error))
-     :accessibility-label :passphrase-input
-     :placeholder         nil
-     :bottom-value        40
-     :multiline           true
-     :auto-correct        false
-     :keyboard-type       "visible-password"
-     :parent-container    {:flex            1
-                           :justify-content :center}
-     :container           (merge {:background-color colors/white
-                                  :flex             1
-                                  :justify-content  :center
-                                  :min-height       90}
-                                 (when platform/ios?
-                                   {:max-height 150}))
-     :style               {:background-color    colors/white
-                           :text-align          :center
-                           :text-align-vertical :center
-                           :min-width           40
-                           :font-size           16
-                           :font-weight         "700"}}]
-   [react/view {:align-items :center}
-    (if passphrase-word-count
-      [react/view {:flex-direction :row
-                   :margin-bottom  4
-                   :min-height     24
-                   :max-height     24
-                   :align-items    :center}
-       [react/nested-text {:style {:font-size     14
-                                   :padding-right 4
-                                   :text-align    :center
-                                   :color         colors/gray}}
-        (str (i18n/label  :t/word-count) ": ")
-        [{:style {:font-weight "500"
-                  :color       colors/black}}
-         (i18n/label-pluralize passphrase-word-count :t/words-n)]]
+   [react/view {:background-color   colors/white
+                :flex               1
+                :justify-content    :center
+                :padding-horizontal 16}
+    [quo/text-input
+     {:on-change-text      #(re-frame/dispatch [:multiaccounts.recover/enter-phrase-input-changed (security/mask-data %)])
+      :auto-focus          true
+      :error               (when passphrase-error (i18n/label passphrase-error))
+      :accessibility-label :passphrase-input
+      :placeholder         (i18n/label :t/seed-phrase-placeholder)
+      :show-cancel         false
+      :bottom-value        40
+      :multiline           true
+      :auto-correct        false
+      :monospace           true}]
+    [react/view {:align-items :flex-end}
+     [react/view {:flex-direction   :row
+                  :align-items      :center
+                  :padding-vertical 8
+                  :opacity          (if passphrase-word-count 1 0)}
+      [quo/text {:color (if next-button-disabled? :secondary :main)
+                 :size  :small}
        (when-not next-button-disabled?
-         [react/view {:style {:background-color colors/green-transparent-10
-                              :border-radius    12
-                              :width            24
-                              :justify-content  :center
-                              :align-items      :center
-                              :height           24}}
-          [vector-icons/tiny-icon :tiny-icons/tiny-check {:color colors/green}]])]
-      [react/view {:align-self :stretch :margin-bottom 4
-                   :max-height 24       :min-height    24}])
+         "✓ ")
+       (i18n/label-pluralize passphrase-word-count :t/words-n)]]]]
+   [react/view {:align-items :center}
     [react/text {:style {:color         colors/gray
                          :font-size     14
                          :margin-bottom 8
                          :text-align    :center}}
-     (i18n/label :t/multiaccounts-recover-enter-phrase-text)]]
-   (when processing?
-     [react/view {:flex 1 :align-items :center}
-      [react/activity-indicator {:size      :large
-                                 :animating true}]
-      [react/text {:style {:color      colors/gray
-                           :margin-top 8}}
-       (i18n/label :t/processing)]])])
+     (i18n/label :t/multiaccounts-recover-enter-phrase-text)]
+    (when processing?
+      [react/view {:flex 1 :align-items :center}
+       [react/activity-indicator {:size      :large
+                                  :animating true}]
+       [react/text {:style {:color      colors/gray
+                            :margin-top 8}}
+        (i18n/label :t/processing)]])]])
 
 (defn recovery-success [pubkey name photo-path]
   [react/view {:flex           1
@@ -452,16 +447,16 @@
     [react/view {:style {:flex 1}}
      [topbar/topbar
       {:navigation
-       {:icon    :main-icons/back
+       {:icon                :main-icons/arrow-left
         :accessibility-label :back-button
-        :handler #(re-frame/dispatch [:intro-wizard/navigate-back])}}]
-     [react/view {:style {:flex 1
+        :handler             #(re-frame/dispatch [:intro-wizard/navigate-back])}}]
+     [react/view {:style {:flex            1
                           :justify-content :space-between}}
       [top-bar {:step :generate-key}]
       [generate-key]
-      [bottom-bar {:step :generate-key
+      [bottom-bar {:step           :generate-key
                    :forward-action :intro-wizard/step-forward-pressed
-                   :processing? (:processing? wizard-state)}]]]))
+                   :processing?    (:processing? wizard-state)}]]]))
 
 (defview wizard-choose-key []
   (letsubs [wizard-state [:intro-wizard/choose-key]]
@@ -486,7 +481,7 @@
          {:label   :t/cancel
           :accessibility-label :back-button
           :handler #(re-frame/dispatch [:intro-wizard/navigate-back])}
-         {:icon    :main-icons/back
+         {:icon    :main-icons/arrow-left
           :accessibility-label :back-button
           :handler #(re-frame/dispatch [:intro-wizard/navigate-back])})}]
      [react/view {:style {:flex 1
@@ -501,7 +496,7 @@
     [react/keyboard-avoiding-view {:style {:flex 1}}
      [topbar/topbar
       {:navigation
-       {:icon    :main-icons/back
+       {:icon    :main-icons/arrow-left
         :accessibility-label :back-button
         :handler #(re-frame/dispatch [:intro-wizard/navigate-back])}}]
      [react/view {:style {:flex 1
@@ -519,7 +514,7 @@
       {:navigation
        (if (:processing? wizard-state)
          :none
-         {:icon    :main-icons/back
+         {:icon    :main-icons/arrow-left
           :accessibility-label :back-button
           :handler #(re-frame/dispatch [:intro-wizard/navigate-back])})}]
      [react/view {:style {:flex 1
@@ -535,7 +530,7 @@
     [react/keyboard-avoiding-view {:style {:flex 1}}
      [topbar/topbar
       {:navigation
-       {:icon    :main-icons/back
+       {:icon    :main-icons/arrow-left
         :accessibility-label :back-button
         :handler #(re-frame/dispatch [:intro-wizard/navigate-back])}}]
      [react/view {:style {:flex            1
@@ -552,7 +547,7 @@
     [react/view {:style {:flex 1}}
      [topbar/topbar
       {:navigation
-       {:icon    :main-icons/back
+       {:icon    :main-icons/arrow-left
         :accessibility-label :back-button
         :handler #(re-frame/dispatch [:intro-wizard/navigate-back])}}]
      [react/view {:style {:flex 1

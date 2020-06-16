@@ -150,8 +150,8 @@ end
 def upload_to_diawi(source)
   diawi(
     file: source,
-    last_hope_attempts_count: 5,
-    last_hope_attempts_backoff: 5,
+    timeout: 120,
+    check_status_delay: 5,
     token: ENV['DIAWI_TOKEN']
   )
   # save the URL to a file for use in CI
@@ -289,7 +289,14 @@ platform :android do
   lane :upload_metadata do
     upload_to_play_store(
       skip_upload_apk: true,
-      json_key_data: ENV['GOOGLE_PLAY_JSON_KEY']
+      skip_upload_changelogs: true,
+      json_key_data: ENV['GOOGLE_PLAY_JSON_KEY'],
+      # These don't matter much as we're not uploading any new builds
+      # and indeed, we're skipping changelogs. This is just so that
+      # the library can find what it thinks it needs and continue with
+      # the work we actually want it to do.
+      track: 'production',
+      version_code: '2020042307'
     )
   end
 

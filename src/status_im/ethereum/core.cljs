@@ -1,10 +1,8 @@
 (ns status-im.ethereum.core
   (:require [clojure.string :as string]
             [status-im.ethereum.tokens :as tokens]
-            [status-im.js-dependencies :as dependencies]
-            [status-im.utils.money :as money]))
-
-(def utils dependencies/web3-utils)
+            [status-im.utils.money :as money]
+            ["web3-utils" :as utils]))
 
 (defn sha3 [s]
   (when s
@@ -13,12 +11,12 @@
 (defn utf8-to-hex [s]
   (try
     (.utf8ToHex utils (str s))
-    (catch :default err nil)))
+    (catch :default _ nil)))
 
 (defn hex-to-utf8 [s]
   (try
     (.hexToUtf8 utils s)
-    (catch :default err nil)))
+    (catch :default _ nil)))
 
 ;; IDs standardized in https://github.com/ethereum/EIPs/blob/master/EIPS/eip-155.md#list-of-chain-ids
 
@@ -77,7 +75,7 @@
   (when s
     (string/replace s hex-prefix "")))
 
-(def ^:const public-key-length 128)
+(def public-key-length 128)
 
 (defn coordinates [public-key]
   (when-let [hex (naked-address public-key)]
@@ -122,7 +120,7 @@
   (if (tokens/ethereum? symbol)
     default-transaction-gas
     ;; TODO(jeluard) Rely on estimateGas call
-    (.times default-transaction-gas 5)))
+    (.times ^js default-transaction-gas 5)))
 
 (defn address= [address1 address2]
   (and address1 address2
@@ -138,3 +136,13 @@
                          nil)]
     (when normalized-key
       (subs (sha3 normalized-key) 26))))
+
+(def bytes32-length 66) ; length of '0x' + 64 hex values. (a 32bytes value has 64 nibbles)
+
+(defn hex->text
+  "Converts a hexstring to UTF8 text. If the data received is 32 bytes long,
+   return the value unconverted"
+  [data]
+  (if (= bytes32-length (count (normalized-hex data)))
+    data ; Assume it's a bytes32
+    (hex-to-utf8 data)))

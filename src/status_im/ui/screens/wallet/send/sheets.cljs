@@ -1,5 +1,5 @@
 (ns status-im.ui.screens.wallet.send.sheets
-  (:require-macros [status-im.utils.views :refer [defview letsubs] :as views])
+  (:require-macros [status-im.utils.views :as views])
   (:require [re-frame.core :as re-frame]
             [status-im.i18n :as i18n]
             [status-im.ui.components.react :as react]
@@ -37,7 +37,8 @@
 
 (defn- request-camera-permissions []
   (let [options {:handler        :wallet.send/qr-scanner-result
-                 :cancel-handler :wallet.send/qr-scanner-cancel}]
+                 :cancel-handler :wallet.send/qr-scanner-cancel
+                 :modal-opened?  true}]
     (re-frame/dispatch
      [:request-permissions
       {:permissions [:camera]

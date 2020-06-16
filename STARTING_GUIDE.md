@@ -17,6 +17,17 @@ make release-ios
 ```
 For more `make` targets run `make help`.
 
+# Development
+
+There are three steps necessary to start development, in this case for Android:
+
+1. `make run-clojure` - Compiles Clojure into JavaScript, watches for changes on cljs files, and hot-reloads code in the app
+2. `make run-metro` - Starts metro bundler and watches JavaScript code
+3. `make run-android` - Builds the Android app and starts it on the device
+
+The first two will continue watching for changes and keep re-building the app. They need to be ready first.
+The last one will exit once the app is up and ready.
+
 # Manual Steps
 
 There are a few manual steps you might want to do in order to start contributing.

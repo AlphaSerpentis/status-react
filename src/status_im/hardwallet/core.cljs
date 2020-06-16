@@ -1,25 +1,21 @@
 (ns status-im.hardwallet.core
-  (:require [re-frame.core :as re-frame]
-            [status-im.multiaccounts.create.core :as multiaccounts.create]
+  (:require [status-im.hardwallet.change-pin :as change-pin]
+            [status-im.hardwallet.common :as common]
+            status-im.hardwallet.delete-key
+            status-im.hardwallet.export-key
+            [status-im.hardwallet.login :as login]
+            [status-im.hardwallet.mnemonic :as mnemonic]
+            [status-im.hardwallet.onboarding :as onboarding]
+            [status-im.hardwallet.recovery :as recovery]
+            [status-im.hardwallet.sign :as sign]
+            [status-im.hardwallet.wallet :as wallet]
             [status-im.i18n :as i18n]
-            [status-im.ui.screens.navigation :as navigation]
+            [status-im.multiaccounts.recover.core :as multiaccounts.recover]
+            [status-im.multiaccounts.update.core :as multiaccounts.update]
+            [status-im.navigation :as navigation]
             [status-im.utils.datetime :as utils.datetime]
             [status-im.utils.fx :as fx]
-            [status-im.hardwallet.login :as login]
-            [status-im.hardwallet.sign :as sign]
-            [status-im.hardwallet.change-pin :as change-pin]
-            [status-im.hardwallet.mnemonic :as mnemonic]
-            [status-im.hardwallet.recovery :as recovery]
-            [status-im.hardwallet.onboarding :as onboarding]
-            [status-im.hardwallet.common :as common]
-            status-im.hardwallet.unpair
-            status-im.hardwallet.export-key
-            status-im.hardwallet.delete-key
-            [status-im.hardwallet.wallet :as wallet]
-            [taoensso.timbre :as log]
-            status-im.hardwallet.fx
-            [status-im.multiaccounts.update.core :as multiaccounts.update]
-            [status-im.multiaccounts.recover.core :as multiaccounts.recover]))
+            [taoensso.timbre :as log]))
 
 (fx/defn show-keycard-has-multiaccount-alert
   [{:keys [db] :as cofx}]
@@ -48,7 +44,7 @@
                                                    :import-multiaccount []
                                                    :current             []}))}
             (common/listen-to-hardware-back-button)
-            (navigation/navigate-replace-cofx :keycard-recovery-pin nil)))
+            (navigation/navigate-replace :keycard-recovery-pin nil)))
 
 (fx/defn proceed-setup-with-initialized-card
   [{:keys [db] :as cofx} flow instance-uid]
@@ -62,7 +58,7 @@
                   {:db (update-in db [:hardwallet :secrets] merge pairing-data)}
                   (common/listen-to-hardware-back-button)
                   (when (= flow :create)
-                    (mnemonic/proceed-with-generating-mnemonic))
+                    (mnemonic/set-mnemonic))
                   (when (= flow :recovery)
                     (onboarding/proceed-with-generating-key)))
         (recovery/load-pair-screen cofx)))))
@@ -124,22 +120,35 @@
 (defn- proceed-to-pin-confirmation [fx]
   (assoc-in fx [:db :hardwallet :pin :enter-step] :confirmation))
 
+(defn- proceed-to-pin-reset-confirmation [fx]
+  (-> fx
+      (update-in [:db :hardwallet :pin] dissoc :reset-confirmation)
+      (assoc-in [:db :hardwallet :pin :enter-step] :reset-confirmation)))
+
+(defn- proceed-to-puk-confirmation [fx]
+  (assoc-in fx [:db :hardwallet :pin :enter-step] :puk))
+
 (fx/defn on-unblock-pin-success
   {:events [:hardwallet.callback/on-unblock-pin-success]}
   [{:keys [db] :as cofx}]
-  (let [pairing (common/get-pairing db)]
+  (let [pairing   (common/get-pairing db)
+        reset-pin (get-in db [:hardwallet :pin :reset])]
     (fx/merge cofx
-              {:hardwallet/get-application-info {:pairing pairing}
-               :db                              (-> db
-                                                    (update-in [:hardwallet :pin] merge {:status       nil
-                                                                                         :enter-step   :original
-                                                                                         :current      [0 0 0 0 0 0]
-                                                                                         :confirmation []
-                                                                                         :puk          []
-                                                                                         :puk-restore? true
-                                                                                         :error-label  nil}))}
+              {:hardwallet/get-application-info
+               {:pairing pairing}
+
+               :db
+               (update-in db [:hardwallet :pin] merge
+                          {:status       :after-unblocking
+                           :enter-step   :login
+                           :login        reset-pin
+                           :confirmation []
+                           :puk          []
+                           :puk-restore? true
+                           :error-label  nil})}
               (common/hide-connection-sheet)
-              (navigation/navigate-to-cofx :enter-pin-settings nil))))
+              (common/clear-on-card-connected)
+              (common/clear-on-card-read))))
 
 (fx/defn on-unblock-pin-error
   {:events [:hardwallet.callback/on-unblock-pin-error]}
@@ -149,11 +158,15 @@
     (log/debug "[hardwallet] unblock pin error" error)
     (when-not tag-was-lost?
       (fx/merge cofx
-                {:hardwallet/get-application-info {:pairing pairing}
-                 :db                              (update-in db [:hardwallet :pin] merge {:status      :error
-                                                                                          :error-label :t/puk-mismatch
-                                                                                          :enter-step  :puk
-                                                                                          :puk         []})}
+                {:hardwallet/get-application-info
+                 {:pairing pairing}
+
+                 :db
+                 (update-in db [:hardwallet :pin] merge
+                            {:status      :error
+                             :error-label :t/puk-mismatch
+                             :enter-step  :puk
+                             :puk         []})}
                 (common/hide-connection-sheet)))))
 
 (fx/defn clear-on-verify-handlers
@@ -181,7 +194,6 @@
                                      :hardwallet/generate-and-load-key
                                      :hardwallet/remove-key-with-unpair
                                      :hardwallet/unpair-and-delete
-                                     :hardwallet/generate-mnemonic
                                      :wallet.accounts/generate-new-keycard-account} on-verified)
                 (common/get-application-info pairing nil))
               (when on-verified
@@ -220,7 +232,7 @@
                     (fn [_] {:utils/dispatch-later
                              [{:dispatch [on-verified-failure]
                                :ms 200}]}))
-                  (clear-on-verify-handlers))
+                  #_(clear-on-verify-handlers))
 
         (fx/merge cofx
                   (common/hide-connection-sheet)
@@ -236,12 +248,13 @@
     :handler
     (fn [{:keys [db]}]
       (let [puk     (common/vector->string (get-in db [:hardwallet :pin :puk]))
+            pin     (common/vector->string (get-in db [:hardwallet :pin :reset]))
             key-uid (get-in db [:hardwallet :application-info :key-uid])
             pairing (common/get-pairing db key-uid)]
         {:db (assoc-in db [:hardwallet :pin :status] :verifying)
          :hardwallet/unblock-pin
          {:puk     puk
-          :new-pin common/default-pin
+          :new-pin pin
           :pairing pairing}}))}))
 
 (def pin-code-length 6)
@@ -257,12 +270,15 @@
 (fx/defn update-pin
   {:events [:hardwallet.ui/pin-numpad-button-pressed]}
   [{:keys [db] :as cofx} number enter-step]
+  (log/debug "update-pin" enter-step)
   (let [numbers-entered (count (get-in db [:hardwallet :pin enter-step]))
         need-update? (if (= enter-step :puk)
                        (< numbers-entered puk-code-length)
                        (< numbers-entered pin-code-length))]
     (fx/merge cofx
-              {:db (cond-> (assoc-in db [:hardwallet :pin :status] nil)
+              {:db (cond-> (-> db
+                               (assoc-in [:hardwallet :pin :enter-step] enter-step)
+                               (assoc-in [:hardwallet :pin :status] nil))
                      need-update? (update-in [:hardwallet :pin enter-step] (fnil conj []) number))}
               (when need-update?
                 (handle-pin-input enter-step)))))
@@ -273,6 +289,13 @@
                                               :enter-step   :original
                                               :original     []
                                               :confirmation []}))
+
+(defn- pin-reset-error [fx error-label]
+  (update-in fx [:db :hardwallet :pin] merge {:status             :error
+                                              :error-label        error-label
+                                              :enter-step         :reset
+                                              :reset              []
+                                              :reset-confirmation []}))
 
 ; PIN enter steps:
 ; login - PIN is used to login
@@ -314,7 +337,7 @@
 
       (and (= enter-step :export-key)
            (= pin-code-length numbers-entered))
-      (wallet/hide-pin-sheet)
+      (wallet/verify-pin-with-delay)
 
       (and (= enter-step :sign)
            (= pin-code-length numbers-entered))
@@ -333,7 +356,21 @@
            (= pin-code-length numbers-entered)
            (not= (get-in db [:hardwallet :pin :original])
                  (get-in db [:hardwallet :pin :confirmation])))
-      (pin-enter-error :t/pin-mismatch))))
+      (pin-enter-error :t/pin-mismatch)
+
+      (= enter-step :reset)
+      (proceed-to-pin-reset-confirmation)
+
+      (and (= enter-step :reset-confirmation)
+           (= (get-in db [:hardwallet :pin :reset])
+              (get-in db [:hardwallet :pin :reset-confirmation])))
+      (proceed-to-puk-confirmation)
+
+      (and (= enter-step :reset-confirmation)
+           (= pin-code-length numbers-entered)
+           (not= (get-in db [:hardwallet :pin :reset])
+                 (get-in db [:hardwallet :pin :reset-confirmation])))
+      (pin-reset-error :t/pin-mismatch))))
 
 (fx/defn set-multiaccount-pairing
   [cofx _ pairing paired-on]
@@ -491,4 +528,3 @@
   {:events [:hardwallet.callback/on-register-card-events]}
   [{:keys [db]} listeners]
   {:db (update-in db [:hardwallet :listeners] merge listeners)})
-

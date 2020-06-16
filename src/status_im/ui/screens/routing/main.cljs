@@ -1,8 +1,6 @@
 (ns status-im.ui.screens.routing.main
   (:require-macros [status-im.utils.views :as views])
-  (:require [reagent.core :as reagent]
-            [re-frame.core :as re-frame]
-            [status-im.ui.screens.profile.tribute-to-talk.views :as tr-to-talk]
+  (:require [status-im.ui.screens.profile.tribute-to-talk.views :as tr-to-talk]
             [status-im.ui.screens.add-new.new-public-chat.view :as new-public-chat]
             [status-im.ui.screens.wallet.components.views :as wallet.components]
             [status-im.ui.screens.qr-scanner.views :as qr-scanner]
@@ -20,16 +18,16 @@
             [status-im.ui.screens.routing.browser-stack :as browser-stack]
             [status-im.ui.components.tabbar.core :as tabbar]
             [status-im.ui.screens.routing.core :as navigation]
-            [status-im.utils.platform :as platform]))
+            [status-im.utils.platform :as platform]
+            [status-im.ui.screens.chat.image.preview.views :as image-preview]))
 
 (defonce main-stack (navigation/create-stack))
-(defonce modals-stack (navigation/create-stack))
 (defonce bottom-tabs (navigation/create-bottom-tabs))
 
 ;; TODO(Ferossgp):  Add two-pane navigator on chat-stack
 (defn tabs []
   [bottom-tabs {:initial-route-name :chat-stack
-                :lazy               false
+                :lazy               true
                 :header-mode        :none
                 :tab-bar            tabbar/tabbar}
    [{:name      :chat-stack
@@ -90,4 +88,7 @@
        :component wallet.components/contact-code}
       {:name      :qr-scanner
        :insets    {:top false}
-       :component qr-scanner/qr-scanner}]]))
+       :component qr-scanner/qr-scanner}
+      {:name      :image-preview
+       :insets    {:top false}
+       :component image-preview/preview-image}]]))

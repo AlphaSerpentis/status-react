@@ -1,16 +1,14 @@
 (ns status-im.ethereum.transactions.core
   (:require [re-frame.core :as re-frame]
-            [status-im.constants :as constants]
             [status-im.ethereum.decode :as decode]
             [status-im.ethereum.eip55 :as eip55]
             [status-im.ethereum.encode :as encode]
             [status-im.ethereum.json-rpc :as json-rpc]
-            [status-im.ethereum.core :as ethereum]
-            [status-im.ethereum.tokens :as tokens]
+            [status-im.ens.core :as ens]
             [status-im.utils.fx :as fx]
-            [status-im.utils.money :as money]
             [status-im.wallet.core :as wallet]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log]
+            [cljs.spec.alpha :as spec]))
 
 (def confirmations-count-threshold 12)
 
@@ -38,8 +36,8 @@
 
 (defn- parse-token-transfer
   [chain-tokens contract]
-  (let [{:keys [nft? symbol] :as token}  (get chain-tokens contract
-                                              default-erc20-token)]
+  (let [{:keys [symbol] :as token} (get chain-tokens contract
+                                        default-erc20-token)]
     {:symbol        symbol
      :token         token
      ;; NOTE(goranjovic) - just a flag we need when we merge this entry
@@ -50,8 +48,8 @@
 
 (defn enrich-transfer
   [chain-tokens
-   {:keys [address blockNumber timestamp type transaction receipt from txStatus
-           txHash gasPrice gasUsed contract value gasLimit input nonce to type id] :as transfer}]
+   {:keys [address blockNumber timestamp from txStatus txHash gasPrice
+           gasUsed contract value gasLimit input nonce to type id]}]
   (let [erc20?  (= type "erc20")
         failed? (= txStatus "0x0")]
     (merge {:address   (eip55/address->checksum address)
@@ -208,8 +206,7 @@
   [{:keys [db]} address]
   {:db (assoc-in db [:wallet :fetching address :all-fetched?] true)})
 
-(fx/defn new-transfers
-  {:events [::new-transfers]}
+(fx/defn handle-new-transfer
   [{:keys [db] :as cofx} transfers {:keys [address limit]}]
   (log/debug "[transfers] new-transfers"
              "address" address
@@ -237,6 +234,38 @@
                   (conj (tx-history-end-reached checksum)))]
     (apply fx/merge cofx (tx-fetching-ended [checksum]) effects)))
 
+(fx/defn check-ens-transactions
+  [{:keys [db] :as cofx} transfers]
+  (let [set-of-transactions-hash (reduce (fn [acc {:keys [hash]}] (conj acc hash)) #{} transfers)
+        registrations (filter
+                       (fn [[hash {:keys [state]}]]
+                         (and
+                          (or (= state :dismissed) (= state :submitted))
+                          (contains? set-of-transactions-hash hash)))
+                       (get db :ens/registrations))
+        fxs (map (fn [[hash {:keys [username custom-domain?]}]]
+                   (let [transfer (first (filter (fn [transfer] (let [transfer-hash (get transfer :hash)] (= transfer-hash hash))) transfers))
+                         type (get transfer :type)
+                         transaction-success (get transfer :transfer)]
+                     (cond
+                       (= transaction-success true)
+                       (fx/merge cofx
+                                 (ens/clear-ens-registration hash)
+                                 (ens/save-username custom-domain? username false))
+                       (= type :failed)
+                       (ens/update-ens-tx-state :failure username custom-domain? hash)
+                       :else
+                       nil)))
+                 registrations)]
+    (apply fx/merge cofx fxs)))
+
+(fx/defn new-transfers
+  {:events [::new-transfers]}
+  [cofx transfers params]
+  (fx/merge cofx
+            (handle-new-transfer transfers params)
+            (check-ens-transactions transfers)))
+
 (fx/defn tx-fetching-failed
   {:events [::tx-fetching-failed]}
   [cofx error address]
@@ -251,8 +280,8 @@
               limit-per-address]
        :as params
        :or {limit default-transfers-limit}}]
-   {:pre [(cljs.spec.alpha/valid?
-           (cljs.spec.alpha/coll-of string?)
+   {:pre [(spec/valid?
+           (spec/coll-of string?)
            addresses)]}
    (log/debug "[transactions] get-transfers"
               "addresses" addresses
@@ -275,20 +304,13 @@
 (fx/defn fetch-more-tx
   {:events [:transactions/fetch-more]}
   [{:keys [db] :as cofx} address]
-  (let [all-tokens   (:wallet/all-tokens db)
-        chain        (ethereum/chain-keyword db)
-        chain-tokens (into
-                      {}
-                      (map (juxt :address identity)
-                           (tokens/tokens-for
-                            all-tokens chain)))
-        min-known-block (or (get-min-known-block db address)
+  (let [min-known-block (or (get-min-known-block db address)
                             (:ethereum/current-block db))
         min-block-transfers-count (or (min-block-transfers-count db address) 0)]
     (fx/merge
      cofx
      {:transactions/get-transfers
-      {:chain-tokens          chain-tokens
+      {:chain-tokens          (:wallet/all-tokens db)
        :addresses             [address]
        :before-block          min-known-block
        :historical?           true

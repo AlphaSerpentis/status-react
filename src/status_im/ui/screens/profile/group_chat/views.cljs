@@ -1,29 +1,22 @@
 (ns status-im.ui.screens.profile.group-chat.views
-  (:require-macros [status-im.utils.views :refer [defview letsubs]])
-  (:require [status-im.utils.platform :as platform]
+  (:require [quo.core :as quo]
+            [re-frame.core :as re-frame]
             [status-im.constants :as constants]
-            [status-im.ui.components.react :as react]
-            [status-im.ui.screens.profile.components.styles :as profile.components.styles]
-            [status-im.ui.screens.profile.components.views :as profile.components]
+            [status-im.i18n :as i18n]
+            [status-im.multiaccounts.core :as multiaccounts]
+            [status-im.ui.components.chat-icon.screen :as chat-icon]
             [status-im.ui.components.contact.contact :as contact]
             [status-im.ui.components.icons.vector-icons :as vector-icons]
-            [status-im.ui.components.list.views :as list]
-            [status-im.ui.components.chat-icon.screen :as chat-icon]
-            [status-im.ui.screens.chat.sheets :as chat.sheets]
-            [status-im.multiaccounts.core :as multiaccounts]
-            [status-im.ui.components.colors :as colors]
-            [re-frame.core :as re-frame]
-            [status-im.i18n :as i18n]
             [status-im.ui.components.list-item.views :as list-item]
-            [status-im.ui.components.topbar :as topbar]))
-
-(defn group-chat-profile-toolbar [admin?]
-  [topbar/topbar
-   (when admin?
-     {:accessories
-      [{:icon                :icons/edit
-        :accessibility-label :edit-button
-        :handler             #(re-frame/dispatch [:navigate-to :edit-group-chat-name])}]})])
+            [status-im.ui.components.list.views :as list]
+            [status-im.ui.components.profile-header.view :as profile-header]
+            [status-im.ui.components.react :as react]
+            [status-im.ui.screens.chat.sheets :as chat.sheets]
+            [status-im.ui.screens.profile.components.styles
+             :as
+             profile.components.styles]
+            [status-im.utils.platform :as platform])
+  (:require-macros [status-im.utils.views :refer [defview letsubs]]))
 
 (defn member-sheet [chat-id member us-admin?]
   [react/view
@@ -44,7 +37,7 @@
        :title               :t/make-admin
        :accessibility-label :make-admin
        ;; TODO(Ferossgp): Fix case for make admin icon
-       :icon                :main-icons/make_admin
+       :icon                :main-icons/make-admin
        :on-press            #(chat.sheets/hide-sheet-and-dispatch [:group-chats.ui/make-admin-pressed chat-id (:public-key member)])}])
    (when-not (:admin? member)
      [list-item/list-item
@@ -92,25 +85,29 @@
    [chat-group-members-view chat-id admin? current-pk]])
 
 (defview group-chat-profile []
-  (letsubs [{:keys [admins chat-id joined?] :as current-chat} [:chats/current-chat]
-            editing?     [:group-chat-profile/editing?]
+  (letsubs [{:keys [admins chat-id joined? chat-name color contacts] :as current-chat} [:chats/current-chat]
             members      [:contacts/current-chat-contacts]
-            changed-chat [:group-chat-profile/profile]
             current-pk   [:multiaccount/public-key]]
     (when current-chat
-      (let [shown-chat            (merge current-chat changed-chat)
-            admin?                (get admins current-pk)
+      (let [admin?                (get admins current-pk)
             allow-adding-members? (and admin? joined?
                                        (< (count members) constants/max-group-chat-participants))]
         [react/view profile.components.styles/profile
-         [group-chat-profile-toolbar (and admin? joined?)]
-         [react/scroll-view
+         [quo/animated-header
+          {:use-insets        true
+           :left-accessories  [{:icon                :main-icons/arrow-left
+                                :accessibility-label :back-button
+                                :on-press            #(re-frame/dispatch [:navigate-back])}]
+           :right-accessories (when (and admin? joined?)
+                                [{:icon                :icons/edit
+                                  :accessibility-label :edit-button
+                                  :on-press            #(re-frame/dispatch [:navigate-to :edit-group-chat-name])}])
+           :extended-header   (profile-header/extended-header
+                               {:title         chat-name
+                                :color         color
+                                :subtitle      (i18n/label :t/members-count {:count (count contacts)})
+                                :subtitle-icon :icons/tiny-group})}
           [react/view profile.components.styles/profile-form
-           [react/view {:style {:border-bottom-width 1
-                                :padding-bottom      15
-                                :margin-bottom       8
-                                :border-bottom-color colors/gray-lighter}}
-            [profile.components/group-header-display shown-chat]]
            (when joined?
              [list-item/list-item
               {:theme               :action

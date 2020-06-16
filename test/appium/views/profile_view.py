@@ -104,8 +104,7 @@ class ConfirmLogoutButton(BaseButton):
 class DefaultUserNameText(BaseText):
     def __init__(self, driver):
         super(DefaultUserNameText, self).__init__(driver)
-        self.locator = self.Locator.xpath_selector(
-            '//android.widget.ImageView[@content-desc="chat-icon"]/../android.widget.TextView')
+        self.locator = self.Locator.accessibility_id('default-username')
 
 class ENSusernames(BaseButton):
     def __init__(self, driver):
@@ -134,6 +133,12 @@ class ProfilePictureElement(BaseElement):
         self.locator = self.Locator.accessibility_id('chat-icon')
 
 
+class ProfileDetailsOtherUser(BaseElement):
+    def __init__(self, driver):
+        super(ProfileDetailsOtherUser, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id('profile-public-key')
+
+
 class EditPictureButton(BaseButton):
 
     def __init__(self, driver):
@@ -156,11 +161,12 @@ class CrossIcon(BaseButton):
         self.locator = self.Locator.accessibility_id('done-button')
 
 
-class ShareButton(BaseButton):
+
+class ENSUsernameInShareChatKeyPopup(BaseText):
 
     def __init__(self, driver):
-        super(ShareButton, self).__init__(driver)
-        self.locator = self.Locator.accessibility_id('share-my-contact-code-button')
+        super(ENSUsernameInShareChatKeyPopup, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id('ens-username')
 
 
 class AdvancedButton(BaseButton):
@@ -180,6 +186,7 @@ class LogLevelSetting(BaseButton):
     def __init__(self, driver):
         super(LogLevelSetting, self).__init__(driver)
         self.locator = self.Locator.xpath_selector('//*[@content-desc="log-level-settings-button"]/android.widget.TextView[2]')
+
 
 class BackupRecoveryPhraseButton(BaseButton):
 
@@ -345,15 +352,14 @@ class AddBootnodeButton(BaseButton):
 
     def __init__(self, driver):
         super(AddBootnodeButton, self).__init__(driver)
-        self.locator = self.Locator.xpath_selector("(//*[@content-desc='icon'])[2]")
+        self.locator = self.Locator.accessibility_id("add-bootnode")
 
 
 class BootnodeAddressInput(BaseEditBox):
 
     def __init__(self, driver):
         super(BootnodeAddressInput, self).__init__(driver)
-        self.locator = self.Locator.xpath_selector(
-            "//*[@text='Bootnode address']/following-sibling::*[1]/android.widget.EditText")
+        self.locator = self.Locator.accessibility_id("bootnode-address")
 
 
 class EnableBootnodesToggle(BaseEditBox):
@@ -547,7 +553,6 @@ class ENSUsernameInChatSettings(BaseElement):
             "//*[@content-desc='chat-icon']/../android.widget.TextView[2]")
 
 
-
 class ProfileView(BaseView):
 
     def __init__(self, driver):
@@ -584,7 +589,6 @@ class ProfileView(BaseView):
         self.remove_picture_button = RemovePictureButton(self.driver)
         self.confirm_edit_button = ConfirmEditButton(self.driver)
         self.cross_icon = CrossIcon(self.driver)
-        self.share_button = ShareButton(self.driver)
         self.advanced_button = AdvancedButton(self.driver)
         self.log_level_setting = LogLevelSetting(self.driver)
         self.debug_mode_toggle = DebugModeToggle(self.driver)
@@ -615,6 +619,7 @@ class ProfileView(BaseView):
         self.bootnodes_button = BootnodesButton(self.driver)
         self.bootnode_address_input = BootnodeAddressInput(self.driver)
         self.enable_bootnodes = EnableBootnodesToggle(self.driver)
+        self.add_bootnode_button = AddBootnodeButton(self.driver)
 
         # Mailservers
         self.mail_server_button = MailServerButton(self.driver)
@@ -635,6 +640,7 @@ class ProfileView(BaseView):
         # ENS
         self.username_in_ens_chat_settings_text = ENSUsernameInChatSettings(self.driver)
         self.ens_usernames_button = ENSusernames(self.driver)
+        self.ens_name_in_share_chat_key_text = ENSUsernameInShareChatKeyPopup(self.driver)
 
         # Mobile Data
         self.use_mobile_data = UseMobileDataToggle(self.driver)
@@ -668,6 +674,7 @@ class ProfileView(BaseView):
         self.plus_button.click_until_presence_of_element(self.ropsten_chain_button)
         self.custom_network_url.send_keys('https://ropsten.infura.io/v3/f315575765b14720b32382a61a89341a')
         self.specify_name_input.send_keys('custom_ropsten')
+        self.ropsten_chain_button.scroll_to_element()
         self.ropsten_chain_button.click()
         self.ropsten_chain_button.click()
         self.save_button.click()

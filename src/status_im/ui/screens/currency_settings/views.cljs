@@ -5,7 +5,6 @@
             [status-im.ui.components.react :as react]
             [status-im.ui.components.icons.vector-icons :as vector-icons]
             [status-im.ui.components.list.views :as list]
-            [status-im.ui.screens.profile.components.views :as profile.components]
             [status-im.ui.screens.currency-settings.styles :as styles]
             [status-im.ui.components.topbar :as topbar]
             [status-im.ui.components.search-input.view :as search-input]))
@@ -33,18 +32,20 @@
     [react/view {:flex 1}
      [topbar/topbar {:title :t/main-currency}]
      [react/view {:flex 1}
-      [search-input/search-input
-       {:search-active? search-active?
-        :search-filter search-filter
-        :on-cancel #(re-frame/dispatch [:search/currency-filter-changed nil])
-        :on-focus  (fn [search-filter]
-                     (when-not search-filter
-                       (re-frame/dispatch [:search/currency-filter-changed ""])))
-        :on-change (fn [text]
-                     (re-frame/dispatch [:search/currency-filter-changed text]))}]
-      [list/flat-list {:data      (->> currencies
-                                       vals
-                                       (sort #(compare (:code %1) (:code %2))))
-                       :key-fn    :code
-                       :render-fn (render-currency currency-id)
+      [react/view {:padding-horizontal 16
+                   :padding-vertical   10}
+       [search-input/search-input
+        {:search-active? search-active?
+         :search-filter  search-filter
+         :on-cancel      #(re-frame/dispatch [:search/currency-filter-changed nil])
+         :on-focus       (fn [search-filter]
+                           (when-not search-filter
+                             (re-frame/dispatch [:search/currency-filter-changed ""])))
+         :on-change      (fn [text]
+                           (re-frame/dispatch [:search/currency-filter-changed text]))}]]
+      [list/flat-list {:data                      (->> currencies
+                                                       vals
+                                                       (sort #(compare (:code %1) (:code %2))))
+                       :key-fn                    :code
+                       :render-fn                 (render-currency currency-id)
                        :keyboardShouldPersistTaps :always}]]]))

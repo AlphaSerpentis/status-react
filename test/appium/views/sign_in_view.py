@@ -35,6 +35,11 @@ class RecoverAccountPasswordInput(BaseEditBox):
         self.locator = self.Locator.xpath_selector("//android.widget.TextView[@text='Password']"
                                                    "/following-sibling::android.view.ViewGroup/android.widget.EditText")
 
+class FirstKeyForChatText(BaseText):
+    def __init__(self, driver):
+        super(FirstKeyForChatText, self).__init__(driver)
+        self.locator = self.Locator.xpath_selector('//*[@content-desc="select-account-button-0"]//android.widget.TextView[1]')
+
 
 class CreatePasswordInput(BaseEditBox):
     def __init__(self, driver):
@@ -215,6 +220,7 @@ class SignInView(BaseView):
         self.privacy_policy_link = PrivacyPolicyLink(self.driver)
         self.lets_go_button = LetsGoButton(self.driver)
         self.keycard_storage_button = KeycardKeyStorageButton(self.driver)
+        self.first_username_on_choose_chat_name = FirstKeyForChatText(self.driver)
 
     def create_user(self, password=common_password, keycard=False):
         self.get_started_button.click()
@@ -222,15 +228,7 @@ class SignInView(BaseView):
         self.next_button.click()
         if keycard:
             keycard_flow = self.keycard_storage_button.click()
-            self.next_button.click()
-            keycard_flow.begin_setup_button.click()
-            keycard_flow.connect_card_button.click()
-            keycard_flow.enter_default_pin()
-            keycard_flow.enter_default_pin()
-            self.next_button.scroll_to_element()
-            self.next_button.wait_for_visibility_of_element(20)
-            self.next_button.click()
-            self.yes_button.click()
+            keycard_flow.confirm_pin_and_proceed()
             keycard_flow.backup_seed_phrase()
         else:
             self.next_button.click()
@@ -243,24 +241,30 @@ class SignInView(BaseView):
         self.profile_button.wait_for_visibility_of_element(30)
         return self.get_home_view()
 
-    def recover_access(self, passphrase: str, password: str = common_password):
+    def recover_access(self, passphrase: str, password: str = common_password, keycard=False):
         recover_access_view = self.access_key_button.click()
         recover_access_view.enter_seed_phrase_button.click()
         recover_access_view.seedphrase_input.click()
         recover_access_view.seedphrase_input.set_value(passphrase)
         recover_access_view.next_button.click()
         recover_access_view.reencrypt_your_key_button.click()
-        recover_access_view.next_button.click()
-        recover_access_view.create_password_input.set_value(password)
-        recover_access_view.next_button.click()
-        recover_access_view.confirm_your_password_input.set_value(password)
-        recover_access_view.next_button.click_until_presence_of_element(self.lets_go_button)
+        if keycard:
+            keycard_flow = self.keycard_storage_button.click()
+            keycard_flow.confirm_pin_and_proceed()
+            self.lets_go_button.wait_for_visibility_of_element(30)
+        else:
+            recover_access_view.next_button.click()
+            recover_access_view.create_password_input.set_value(password)
+            recover_access_view.next_button.click()
+            recover_access_view.confirm_your_password_input.set_value(password)
+            recover_access_view.next_button.click_until_presence_of_element(self.lets_go_button)
         self.lets_go_button.click()
         self.profile_button.wait_for_visibility_of_element(30)
         return self.get_home_view()
 
     def sign_in(self, password=common_password, keycard=False):
-        self.multi_account_on_login_button.wait_for_visibility_of_element(5)
+        self.rooted_device_continue()
+        self.multi_account_on_login_button.wait_for_visibility_of_element(10)
         self.multi_account_on_login_button.click()
         if keycard:
             from views.keycard_view import KeycardView
@@ -282,5 +286,4 @@ class SignInView(BaseView):
 
     def open_weblink_and_login(self, url_weblink):
         self.open_universal_web_link(url_weblink)
-        self.rooted_device_continue()
         self.sign_in()

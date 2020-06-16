@@ -101,6 +101,16 @@ class SelectAssetButton(BaseButton):
         super(SelectAssetButton, self).__init__(driver)
         self.locator = self.Locator.accessibility_id('choose-asset-button')
 
+class AssetText(BaseText):
+    def __init__(self, driver):
+        super(AssetText, self).__init__(driver)
+        self.locator = self.Locator.xpath_selector('//*[@content-desc="choose-asset-button"]//android.widget.TextView')
+
+class RecipientText(BaseText):
+    def __init__(self, driver):
+        super(RecipientText, self).__init__(driver)
+        self.locator = self.Locator.xpath_selector('//*[@content-desc="choose-recipient-button"]//android.widget.TextView')
+
 
 class ErrorDialog(BaseView):
     def __init__(self, driver):
@@ -196,17 +206,36 @@ class ValidationWarnings(object):
 
 
 class SignWithPasswordButton(BaseButton):
-
     def __init__(self, driver):
         super(SignWithPasswordButton, self).__init__(driver)
-        self.locator = self.Locator.xpath_selector('//*[@text="Sign with password"]')
+        self.locator = self.Locator.text_selector('Sign with password')
 
 
 class SignButton(BaseButton):
-
     def __init__(self, driver):
         super(SignButton, self).__init__(driver)
         self.locator = self.Locator.xpath_selector('//*[@text="Sign"]')
+
+
+class SignWithKeycardButton(BaseButton):
+    def __init__(self, driver):
+        super(SignWithKeycardButton, self).__init__(driver)
+        self.locator = self.Locator.text_part_selector('Sign with')
+
+    def navigate(self):
+        from views.keycard_view import KeycardView
+        return KeycardView(self.driver)
+
+    def click(self):
+        from views.keycard_view import TwoPinKeyboardButton
+        self.click_until_presence_of_element(TwoPinKeyboardButton(self.driver))
+        return self.navigate()
+
+class SigningPhraseText(BaseText):
+    def __init__(self, driver):
+        super(SigningPhraseText, self).__init__(driver)
+        self.locator = self.Locator.text_part_selector('Signing phrase')
+
 
 # Elements for commands in 1-1 chat
 class UserNameInSendTransactionBottomSheet(BaseButton):
@@ -223,14 +252,13 @@ class AccountNameInSelectAccountBottomSheet(BaseButton):
         self.locator = self.Locator.xpath_selector(
             "//*[@text='Select account']/..//*[starts-with(@text,'%s')]" % self.username)
 
-class SelectButton(BaseButton):
 
+class SelectButton(BaseButton):
     def __init__(self, driver):
         super(SelectButton, self).__init__(driver)
         self.locator = self.Locator.accessibility_id('select-account-bottom-sheet')
 
 class RequestTransactionButtonBottomSheet(BaseButton):
-
     def __init__(self, driver):
         super(RequestTransactionButtonBottomSheet, self).__init__(driver)
         self.locator = self.Locator.accessibility_id('request-transaction-bottom-sheet')
@@ -259,6 +287,7 @@ class SendTransactionView(BaseView):
 
         self.cancel_button = CancelButton(self.driver)
         self.sign_transaction_button = SignTransactionButton(self.driver)
+        self.sign_with_keycard_button = SignWithKeycardButton(self.driver)
         self.sign_with_password = SignWithPasswordButton(self.driver)
         self.sign_button = SignButton(self.driver)
         self.sign_in_phrase_text = SignInPhraseText(self.driver)
@@ -267,6 +296,8 @@ class SendTransactionView(BaseView):
         self.got_it_button = GotItButton(self.driver)
 
         self.select_asset_button = SelectAssetButton(self.driver)
+        self.asset_text = AssetText(self.driver)
+        self.recipient_text = RecipientText(self.driver)
 
         self.error_dialog = ErrorDialog(self.driver)
 
@@ -286,10 +317,20 @@ class SendTransactionView(BaseView):
             wallet_view = WalletView(self.driver)
             wallet_view.ok_got_it_button.click()
 
-    def sign_transaction(self, sender_password: str = common_password):
-        self.sign_with_password.click_until_presence_of_element(self.enter_password_input)
-        self.enter_password_input.send_keys(sender_password)
-        self.sign_button.click_until_absense_of_element(self.sign_button)
+    def sign_transaction(self, sender_password: str = common_password, keycard=False, default_gas_price=True):
+        if not default_gas_price:
+            self.network_fee_button.click()
+            default_gas_price = self.gas_price_input.text
+            self.gas_price_input.clear()
+            self.gas_price_input.set_value(str(float(default_gas_price)+30))
+            self.update_fee_button.click()
+        if keycard:
+            keycard_view = self.sign_with_keycard_button.click()
+            keycard_view.enter_default_pin()
+        else:
+            self.sign_with_password.click_until_presence_of_element(self.enter_password_input)
+            self.enter_password_input.send_keys(sender_password)
+            self.sign_button.click_until_absense_of_element(self.sign_button)
         self.ok_button.wait_for_element(120)
         self.ok_button.click()
 
@@ -307,3 +348,17 @@ class SendTransactionView(BaseView):
 
     def get_account_in_select_account_bottom_sheet_button(self, account_name):
         return AccountNameInSelectAccountBottomSheet(self.driver, account_name)
+
+    def get_values_from_send_transaction_bottom_sheet(self, gas=False):
+        data = {
+            'amount': self.amount_edit_box.text,
+            'asset': self.asset_text.text,
+            'address':  self.recipient_text.text
+        }
+        if gas:
+            self.sign_transaction_button.click_until_presence_of_element(self.sign_with_password)
+            self.network_fee_button.click_until_presence_of_element(self.gas_limit_input)
+            data['gas_limit'] = self.gas_limit_input.text
+            data['gas_price'] = self.gas_price_input.text
+            self.cancel_button.click()
+        return data

@@ -2,8 +2,8 @@
   (:require [status-im.ui.components.react :as react]
             [status-im.ui.components.animation :as animation]
             [status-im.ui.components.bottom-sheet.styles :as styles]
-            [status-im.react-native.js-dependencies :as js-dependencies]
             [status-im.utils.platform :as platform]
+            ["react-native" :refer (BackHandler)]
             [reagent.core :as reagent]
             [re-frame.core :as re-frame]))
 
@@ -36,7 +36,7 @@
 
 (defn- on-move
   [{:keys [height bottom-value opacity-value]}]
-  (fn [_ state]
+  (fn [_ ^js state]
     (let [dy (.-dy state)]
       (cond (pos? dy)
             (let [opacity (max min-opacity (- 1 (/ dy (- height swipe-opacity-range))))]
@@ -49,18 +49,6 @@
   (or
    (<= min-velocity vy)
    (> (* cancellation-coefficient height) (- height dy))))
-
-(defn- cancel
-  ([opts] (cancel opts nil))
-  ([{:keys [height bottom-value show-sheet? opacity-value]} callback]
-   (animate {:bottom            bottom-value
-             :new-bottom-value  height
-             :opacity           opacity-value
-             :new-opacity-value 0
-             :duration          cancellation-animation-duration
-             :callback          #(do (reset! show-sheet? false)
-                                     (animation/set-value bottom-value height)
-                                     (when (fn? callback) (callback)))})))
 
 (defn- on-release
   [{:keys [height bottom-value close-sheet opacity-value]}]
@@ -76,16 +64,16 @@
 
 (defn- swipe-pan-responder [opts]
   (.create
-   react/pan-responder
+   ^js react/pan-responder
    (clj->js
-    {:onMoveShouldSetPanResponder (fn [_ state]
+    {:onMoveShouldSetPanResponder (fn [_ ^js state]
                                     (or (< 10 (js/Math.abs (.-dx state)))
                                         (< 5 (js/Math.abs (.-dy state)))))
      :onPanResponderMove          (on-move opts)
      :onPanResponderRelease       (on-release opts)
      :onPanResponderTerminate     (on-release opts)})))
 
-(defn- pan-handlers [pan-responder]
+(defn- pan-handlers [^js pan-responder]
   (js->clj (.-panHandlers pan-responder)))
 
 (defn- on-open [{:keys [bottom-value internal-atom opacity-value]}]
@@ -134,7 +122,7 @@
             sheet-height (min max-height height)
             close-sheet  (fn []
                            (when (and platform/android? @back-listener)
-                             (.remove @back-listener)
+                             (.remove ^js @back-listener)
                              (reset! back-listener nil))
                            (on-close {:opacity-value opacity-value
                                       :bottom-value  bottom-value
@@ -154,7 +142,7 @@
                           :internal-atom internal-visible
                           :height        height})
                 (when platform/android?
-                  (reset! back-listener (.addEventListener js-dependencies/back-handler
+                  (reset! back-listener (.addEventListener BackHandler
                                                            "hardwareBackPress"
                                                            handle-back))))
 
@@ -196,7 +184,7 @@
                [react/view {:style     {:padding-top    styles/vertical-padding
                                         :padding-bottom (+ styles/vertical-padding
                                                            (:bottom safe-area))}
-                            :on-layout #(->> %
+                            :on-layout #(->> ^js %
                                              .-nativeEvent
                                              .-layout
                                              .-height
@@ -204,9 +192,8 @@
                 [content]]]]]]])))))
 
 (defn bottom-sheet [props]
-  [react/safe-area-consumer
-   (fn [insets]
-     (reagent/as-element
-      [bottom-sheet-view (assoc props
-                                :window-height @(re-frame/subscribe [:dimensions/window-height])
-                                :safe-area (js->clj insets :keywordize-keys true))]))])
+  (let [props (assoc props :window-height @(re-frame/subscribe [:dimensions/window-height]))]
+    [react/safe-area-consumer
+     (fn [insets]
+       (reagent/as-element
+        [bottom-sheet-view (assoc props :safe-area (js->clj insets :keywordize-keys true))]))]))

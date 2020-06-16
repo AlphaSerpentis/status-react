@@ -1,29 +1,30 @@
 (ns status-im.ui.screens.ens.views
   (:require [re-frame.core :as re-frame]
             [reagent.core :as reagent]
+            [status-im.constants :as constants]
             [status-im.ens.core :as ens]
             [status-im.ethereum.core :as ethereum]
-            [status-im.constants :as constants]
             [status-im.ethereum.ens :as ethereum.ens]
             [status-im.ethereum.stateofus :as stateofus]
             [status-im.i18n :as i18n]
+            [status-im.multiaccounts.core :as multiaccounts]
             [status-im.react-native.resources :as resources]
             [status-im.ui.components.checkbox.view :as checkbox]
             [status-im.ui.components.colors :as colors]
             [status-im.ui.components.common.common :as components.common]
             [status-im.ui.components.icons.vector-icons :as vector-icons]
+            [status-im.ui.components.list-item.views :as list-item]
             [status-im.ui.components.list.views :as list]
             [status-im.ui.components.radio :as radio]
             [status-im.ui.components.react :as react]
-            [status-im.ui.components.toolbar.actions :as actions]
-            [status-im.ui.components.toolbar.view :as toolbar]
+            [status-im.ui.components.topbar :as topbar]
+            [status-im.ui.screens.chat.utils :as chat.utils]
             [status-im.ui.screens.chat.message.message :as message]
-            [status-im.ui.screens.profile.components.views :as profile.components]
-            [status-im.ui.components.list-item.views :as list-item]
+            [status-im.ui.screens.chat.styles.message.message :as message.style]
             [status-im.ui.screens.chat.photos :as photos]
-            [status-im.multiaccounts.core :as multiaccounts]
+            [status-im.ui.screens.profile.components.views :as profile.components]
             [status-im.utils.debounce :as debounce]
-            [status-im.ui.components.topbar :as topbar])
+            [clojure.string :as string])
   (:require-macros [status-im.utils.views :as views]))
 
 (defn- button
@@ -179,9 +180,9 @@
         [react/text ""]))))
 
 (defn- username-input
-  [username state placeholder]
+  [_ _ _]
   (let [input-ref (atom nil)]
-    (fn [username state placeholder]
+    (fn [_ state placeholder]
       [react/view {:flex-direction :row :justify-content :center}
        ;;NOTE required so that the keyboards shows up when navigating
        ;;back from checkout screen
@@ -189,7 +190,7 @@
        ;; [:> navigation/navigation-events
        ;;  {:on-did-focus
        ;;   (fn []
-       ;;     (.focus @input-ref))}]
+       ;;     (.focus ^js @input-ref))}]
        ;;NOTE setting the key as placeholder forces the component to remount
        ;;when the placeholder changes, this prevents the placeholder from
        ;;disappearing when switching between stateofus and custom domain
@@ -295,7 +296,7 @@
        (i18n/label :t/ens-deposit)]]]
     [button {:disabled?    (not @checked?)
              :label-style  (when (not @checked?) {:color colors/gray})
-             :on-press     #(re-frame/dispatch [::ens/register-name-pressed])}
+             :on-press     #(debounce/dispatch-and-chill [::ens/register-name-pressed] 2000)}
      (i18n/label :t/ens-register)]]])
 
 (defn- registration
@@ -361,10 +362,10 @@
   (case state
     :available
     (i18n/label :t/ens-username-registration-confirmation
-                {:username (stateofus/subdomain username)})
+                {:username (stateofus/username-with-domain username)})
     :connected-with-different-key
     (i18n/label :t/ens-username-connection-confirmation
-                {:username (stateofus/subdomain username)})
+                {:username (stateofus/username-with-domain username)})
     :connected
     (i18n/label :t/ens-saved-title)
     ;;NOTE: this state can't be reached atm
@@ -384,7 +385,7 @@
     :connected
     [react/nested-text
      {:style {:font-size 15 :text-align :center}}
-     (stateofus/subdomain username)
+     (stateofus/username-with-domain username)
      [{:style {:color colors/gray}}
       (i18n/label :t/ens-saved)]]
     ;;NOTE: this state can't be reached atm
@@ -464,22 +465,22 @@
       [term-point
        (i18n/label :t/ens-terms-point-9 {:address contract})]
       [react/view {:style {:align-items :center :margin-top 16 :margin-bottom 8}}
-       [link {:on-press #(.openURL react/linking (etherscan-url contract))}
+       [link {:on-press #(.openURL ^js react/linking (etherscan-url contract))}
         (i18n/label :t/etherscan-lookup)]]
       [term-point
        (i18n/label :t/ens-terms-point-10)]
       [react/view {:style {:align-items :center :margin-top 16 :margin-bottom 8}}
-       [link {:on-press #(.openURL react/linking (etherscan-url (:mainnet ethereum.ens/ens-registries)))}
+       [link {:on-press #(.openURL ^js react/linking (etherscan-url (:mainnet ethereum.ens/ens-registries)))}
         (i18n/label :t/etherscan-lookup)]]]]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; NAME DETAILS SCREEN
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(def ^:const release-instructions-link "https://our.status.im/managing-your-ens-name-in-v1/")
+(def release-instructions-link "https://our.status.im/managing-your-ens-name-in-v1/")
 
 (defn open-release-instructions-link! []
-  (.openURL react/linking release-instructions-link))
+  (.openURL ^js react/linking release-instructions-link))
 
 (views/defview name-details []
   (views/letsubs [{:keys [name address custom-domain? public-key
@@ -561,45 +562,49 @@
     content]])
 
 (defn- welcome []
-  [react/view {:style {:flex 1}}
-   [react/scroll-view {:content-container-style {:align-items :center}}
-    [react/image {:source (resources/get-theme-image :ens-header)
-                  :style  {:margin-top 32}}]
-    [react/text {:style {:margin-top 32 :margin-bottom 8 :typography :header}}
-     (i18n/label :t/ens-get-name)]
-    [react/text {:style {:margin-top 8 :margin-bottom 24 :color colors/gray :font-size 15 :margin-horizontal 16
-                         :text-align :center}}
-     (i18n/label :t/ens-welcome-hints)]
-    [welcome-item {:icon-label "1" :title (i18n/label :t/ens-welcome-point-1-title)}
-     [react/view {:flex-direction :row}
-      [react/nested-text
-       {:style {:color colors/gray}}
-       (i18n/label :t/ens-welcome-point-1)
-       [{:style {:text-decoration-line :underline :color colors/black}}
-        (stateofus/subdomain "myname")]]]]
-    [welcome-item {:icon-label "2" :title (i18n/label :t/ens-welcome-point-2-title)}
-     [react/text {:style {:color colors/gray}}
-      (i18n/label :t/ens-welcome-point-2)]]
-    [welcome-item {:icon-label "3" :title (i18n/label :t/ens-welcome-point-3-title)}
-     [react/text {:style {:color colors/gray}}
-      (i18n/label :t/ens-welcome-point-3)]]
-    [welcome-item {:icon-label "@" :title (i18n/label :t/ens-welcome-point-4-title)}
-     [react/text {:style {:color colors/gray}}
-      (i18n/label :t/ens-welcome-point-4)]]
-    [react/text {:style {:margin-top 16 :text-align :center :color colors/gray :typography :caption :padding-bottom 96}}
-     (i18n/label :t/ens-powered-by)]]
-   [react/view {:align-items :center :background-color colors/white
-                :position :absolute :left 0 :right 0 :bottom 0
-                :border-top-width 1 :border-top-color colors/gray-lighter}
-    [button {:on-press #(re-frame/dispatch [::ens/get-started-pressed])
-             :label    (i18n/label :t/get-started)}]]])
+  (let [name (:name @(re-frame/subscribe [:multiaccount]))]
+    [react/view {:style {:flex 1}}
+     [react/scroll-view {:content-container-style {:align-items :center}}
+      [react/image {:source (resources/get-theme-image :ens-header)
+                    :style  {:margin-top 32}}]
+      [react/text {:style {:margin-top 32 :margin-bottom 8 :typography :header}}
+       (i18n/label :t/ens-get-name)]
+      [react/text {:style {:margin-top 8 :margin-bottom 24 :color colors/gray :font-size 15 :margin-horizontal 16
+                           :text-align :center}}
+       (i18n/label :t/ens-welcome-hints)]
+      [welcome-item {:icon-label "1" :title (i18n/label :t/ens-welcome-point-customize-title)}
+       [react/view {:flex-direction :row}
+        [react/text
+         {:style {:color colors/gray}}
+         (i18n/label :t/ens-welcome-point-customize {:name name})]]]
+      [welcome-item {:icon-label "2" :title (i18n/label :t/ens-welcome-point-simplify-title)}
+       [react/text {:style {:color colors/gray}}
+        (i18n/label :t/ens-welcome-point-simplify)]]
+      [welcome-item {:icon-label "3" :title (i18n/label :t/ens-welcome-point-receive-title)}
+       [react/text {:style {:color colors/gray}}
+        (i18n/label :t/ens-welcome-point-receive)]]
+      [welcome-item {:icon-label "4" :title (i18n/label :t/ens-welcome-point-register-title)}
+       [react/text {:style {:color colors/gray}}
+        (i18n/label :t/ens-welcome-point-register)]]
+      [welcome-item {:icon-label "@" :title (i18n/label :t/ens-welcome-point-verify-title)}
+       [react/text {:style {:color colors/gray}}
+        (i18n/label :t/ens-welcome-point-verify)]]
+      [react/text {:style {:margin-top 16 :text-align :center :color colors/gray :typography :caption :padding-bottom 96}}
+       (i18n/label :t/ens-powered-by)]]
+     [react/view {:align-items :center :background-color colors/white
+                  :position :absolute :left 0 :right 0 :bottom 0
+                  :border-top-width 1 :border-top-color colors/gray-lighter}
+      [button {:on-press #(re-frame/dispatch [::ens/get-started-pressed])
+               :label    (i18n/label :t/get-started)}]]]))
 
-(defn- name-item [{:keys [name action]}]
+(defn- name-item [{:keys [name action subtitle]}]
   (let [stateofus-username (stateofus/username name)
         s                  (or stateofus-username name)]
     [list-item/list-item
      {:title       s
-      :subtitle    (when stateofus-username stateofus/domain)
+      :subtitle    (if subtitle
+                     subtitle
+                     (when stateofus-username stateofus/domain))
       :on-press    action
       :icon        :main-icons/username}]))
 
@@ -624,7 +629,25 @@
              [name-item {:name name :hide-chevron? true :action action}]]
             [radio/radio (= name preferred-name)]]]))]]]])
 
-(defn- registered [names {:keys [preferred-name public-key name] :as account} show?]
+(views/defview in-progress-registrations [registrations]
+  [react/view {:style {:margin-top 8}}
+   (for [[hash {:keys [state username]}] registrations
+         :when (or (= state :submitted) (= state :failure))]
+     ^{:key hash}
+     [name-item {:name username
+                 :action (when-not (= state :submitted)
+                           #(re-frame/dispatch [:clear-ens-registration hash]))
+                 :subtitle (case state
+                             :submitted (i18n/label :t/ens-registration-in-progress)
+                             :failure (i18n/label :t/ens-registration-failure)
+                             nil)}])])
+
+(views/defview my-name []
+  (views/letsubs [contact-name [:multiaccount/preferred-name]]
+    (when-not (string/blank? contact-name)
+      (chat.utils/format-author (str "@" contact-name) message.style/message-author-name-container))))
+
+(views/defview registered [names {:keys [preferred-name] :as account} _ registrations]
   [react/view {:style {:flex 1}}
    [react/scroll-view
     [react/view {:style {:margin-top 8}}
@@ -636,12 +659,15 @@
     [react/view {:style {:margin-top 22 :margin-bottom 8}}
      [react/text {:style {:color colors/gray :margin-horizontal 16}}
       (i18n/label :t/ens-your-usernames)]
+     (when registrations
+       [in-progress-registrations registrations])
      (if (seq names)
        [react/view {:style {:margin-top 8}}
         (for [name names]
           ^{:key name}
           [name-item {:name name :action #(re-frame/dispatch [::ens/navigate-to-name name])}])]
-       [react/text {:style {:color colors/gray :font-size 15}}
+       [react/text {:style {:color colors/gray :font-size 15
+                            :margin-horizontal 16}}
         (i18n/label :t/ens-no-usernames)])]
     [react/view {:style {:padding-vertical 22 :border-color colors/gray-lighter :border-top-width 1}}
      (when (> (count names) 1)
@@ -663,16 +689,16 @@
                    :timestamp-str "9:41 AM"}]
       [react/view
        [react/view {:padding-left 72}
-        [message/message-author-name public-key]]
+        [my-name]]
        [react/view {:flex-direction :row}
         [react/view {:padding-left 16 :padding-right 8 :padding-top 4}
          [photos/photo (multiaccounts/displayed-photo account) {:size 36}]]
         [message/text-message message]]])]])
 
 (views/defview main []
-  (views/letsubs [{:keys [names multiaccount show?]} [:ens.main/screen]]
+  (views/letsubs [{:keys [names multiaccount show? registrations]} [:ens.main/screen]]
     [react/keyboard-avoiding-view {:style {:flex 1}}
      [topbar/topbar {:title :t/ens-usernames}]
-     (if (seq names)
-       [registered names multiaccount show?]
+     (if (or (seq names) registrations)
+       [registered names multiaccount show? registrations]
        [welcome])]))

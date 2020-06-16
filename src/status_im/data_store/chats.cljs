@@ -1,40 +1,14 @@
 (ns status-im.data-store.chats
-  (:require [goog.object :as object]
-            [re-frame.core :as re-frame]
+  (:require [clojure.set :as clojure.set]
             [status-im.data-store.messages :as messages]
-            [status-im.waku.core :as waku]
-            [status-im.utils.config :as config]
-            [status-im.utils.fx :as fx]
             [status-im.ethereum.json-rpc :as json-rpc]
-            [status-im.ethereum.core :as ethereum]
-            [taoensso.timbre :as log]
-            [status-im.utils.clocks :as utils.clocks]
-            [status-im.utils.core :as utils]))
-
-(defn remove-empty-vals
-  "Remove key/value when empty seq or nil"
-  [e]
-  (into {} (remove (fn [[_ v]]
-                     (or (nil? v)
-                         (and (coll? v)
-                              (empty? v)))) e)))
+            [status-im.utils.fx :as fx]
+            [status-im.waku.core :as waku]
+            [taoensso.timbre :as log]))
 
 (def one-to-one-chat-type 1)
 (def public-chat-type 2)
 (def private-group-chat-type 3)
-
-(defn- event->string
-  "Transform an event in an a vector with keys in alphabetical order, to compute
-  a predictable id"
-  [event]
-  (js/JSON.stringify
-   (clj->js
-    (mapv
-     #(vector % (get event %))
-     (sort (keys event))))))
-
-; Build an event id from a message
-(def event-id (comp ethereum/sha3 event->string))
 
 (defn type->rpc [{:keys [public? group-chat] :as chat}]
   (assoc chat :chatType (cond
@@ -42,10 +16,16 @@
                           group-chat private-group-chat-type
                           :else one-to-one-chat-type)))
 
-(defn rpc->type [{:keys [chatType] :as chat}]
+(defn rpc->type [{:keys [chatType name] :as chat}]
   (cond
-    (= public-chat-type chatType) (assoc chat :public? true :group-chat true)
-    (= private-group-chat-type chatType) (assoc chat :public? false :group-chat true)
+    (= public-chat-type chatType) (assoc chat
+                                         :chat-name (str "#" name)
+                                         :public? true
+                                         :group-chat true)
+    (= private-group-chat-type chatType) (assoc chat
+                                                :chat-name name
+                                                :public? false
+                                                :group-chat true)
     :else (assoc chat :public? false :group-chat false)))
 
 (defn- marshal-members [{:keys [admins contacts members-joined chatType] :as chat}]
@@ -94,11 +74,10 @@
                                 :deleted-at-clock-value :deletedAtClockValue
                                 :is-active :active
                                 :last-clock-value :lastClockValue})
-      (dissoc :message-list :gaps-loaded? :pagination-info
-              :public? :group-chat :messages
+      (dissoc :public? :group-chat :messages
               :might-have-join-time-messages?
               :loaded-unviewed-messages-ids
-              :messages-initialized? :contacts :admins :members-joined)))
+              :contacts :admins :members-joined)))
 
 (defn <-rpc [chat]
   (-> chat

@@ -121,6 +121,28 @@ class ReplyMessageButton(BaseButton):
         super(ReplyMessageButton, self).__init__(driver)
         self.locator = self.Locator.text_selector("Reply")
 
+class SaveImageButton(BaseButton):
+    def __init__(self, driver):
+        super(SaveImageButton, self).__init__(driver)
+        self.locator = self.Locator.text_selector("Save")
+
+
+class ImageInRecentInGalleryElement(BaseElement):
+    def __init__(self, driver):
+        super(ImageInRecentInGalleryElement, self).__init__(driver)
+        self.locator = self.Locator.xpath_selector('//*[contains(@resource-id,"thumbnail")]')
+
+class ProfileDetailsOtherUser(BaseButton):
+    def __init__(self, driver):
+        super(ProfileDetailsOtherUser, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id('profile-public-key')
+
+
+class ShareChatButton(BaseButton):
+    def __init__(self, driver):
+        super(ShareChatButton, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id('share-chat-button')
+
 
 class GroupInfoButton(BaseButton):
 
@@ -217,6 +239,26 @@ class StickerIcon(BaseButton):
         super(StickerIcon, self).__init__(driver)
         self.locator = self.Locator.accessibility_id('sticker-icon')
 
+class ShowImagesButton(BaseButton):
+    def __init__(self, driver):
+        super(ShowImagesButton, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id('show-photo-icon')
+
+
+class TakePhotoButton(BaseButton):
+    def __init__(self, driver):
+        super(TakePhotoButton, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id('take-picture')
+
+class ImageFromGalleryButton(BaseButton):
+    def __init__(self, driver):
+        super(ImageFromGalleryButton, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id('open-gallery')
+
+class FirstElementFromGalleryButton(BaseButton):
+    def __init__(self, driver):
+        super(FirstElementFromGalleryButton, self).__init__(driver)
+        self.locator = self.Locator.xpath_selector('//*[@content-desc="open-gallery"]/../following-sibling::android.view.ViewGroup[1]')
 
 class ViewProfileButton(BaseButton):
     def __init__(self, driver):
@@ -299,11 +341,22 @@ class ChatElementByText(BaseText):
         class StatusText(BaseText):
             def __init__(self, driver, parent_locator: str):
                 super(StatusText, self).__init__(driver)
-                text = "//android.widget.TextView[@text='Seen' or @text='Sent' or " \
-                       "@text='Not sent. Tap for options' or @text='Network mismatch']"
+                text = "//android.widget.TextView[@text='Not sent. Tap for options']"
                 self.locator = self.Locator.xpath_selector(parent_locator + text)
 
         return StatusText(self.driver, self.locator.value).wait_for_element(10)
+
+    @property
+    def image_in_reply(self):
+        class ImageInReply(BaseElement):
+            def __init__(self, driver, parent_locator):
+                super(ImageInReply, self).__init__(driver)
+                self.locator = self.Locator.xpath_selector(
+                    parent_locator + "//android.widget.ImageView")
+        try:
+            return ImageInReply(self.driver, self.locator.value)
+        except NoSuchElementException:
+            return ''
 
     @property
     def timestamp_message(self):
@@ -447,6 +500,11 @@ class ChatItem(BaseElement):
         super().__init__(driver)
         self.locator = self.Locator.xpath_selector('//*[@content-desc="chat-item"]')
 
+class ImageChatItem(BaseElement):
+    def __init__(self, driver):
+        super().__init__(driver)
+        self.locator = self.Locator.xpath_selector('//*[@content-desc="chat-item"]//android.widget.ImageView')
+
 
 class HistoryTimeMarker(BaseText):
     def __init__(self, driver, marker='Today'):
@@ -536,11 +594,23 @@ class ChatView(BaseView):
         self.get_stickers = GetStickers(self.driver)
         self.sticker_icon = StickerIcon(self.driver)
 
+        # Images
+        self.show_images_button = ShowImagesButton(self.driver)
+        self.take_photo_button = TakePhotoButton(self.driver)
+        self.image_from_gallery_button = ImageFromGalleryButton(self.driver)
+        self.first_image_from_gallery = FirstElementFromGalleryButton(self.driver)
+        self.image_chat_item = ImageChatItem(self.driver)
+        self.save_image_button = SaveImageButton(self.driver)
+        self.recent_image_in_gallery = ImageInRecentInGalleryElement(self.driver)
+
+
+
         self.chat_options = ChatMenuButton(self.driver)
         self.members_button = MembersButton(self.driver)
         self.delete_chat_button = DeleteChatButton(self.driver)
         self.clear_history_button = ClearHistoryButton(self.driver)
         self.reply_message_button = ReplyMessageButton(self.driver)
+        self.share_chat_button = ShareChatButton(self.driver)
         self.clear_button = ClearButton(self.driver)
         self.block_contact_button = BlockContactButton(self.driver)
         self.unblock_contact_button = UnblockContactButton(self.driver)
@@ -571,6 +641,7 @@ class ChatView(BaseView):
         self.profile_address_text = ProfileAddressText(self.driver)
         self.profile_block_contact = ProfileBlockContactButton(self.driver)
         self.profile_add_to_contacts = ProfileAddToContactsButton(self.driver)
+        self.profile_details = ProfileDetailsOtherUser(self.driver)
 
     def delete_chat(self):
         self.chat_options.click()
@@ -656,8 +727,13 @@ class ChatView(BaseView):
         self.send_message_button.click()
 
     def quote_message(self, message = str):
-        self.chat_element_by_text(message).long_press_element()
+        self.element_by_text_part(message).long_press_element()
         self.reply_message_button.click()
+
+    def view_profile_long_press(self, message = str):
+        self.chat_element_by_text(message).long_press_element()
+        self.view_profile_button.click()
+        self.profile_block_contact.wait_for_visibility_of_element(5)
 
     def move_to_messages_by_time_marker(self, marker='Today'):
         self.driver.info("Moving to messages by time marker: '%s'" % marker)

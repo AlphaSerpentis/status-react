@@ -6,16 +6,14 @@
             [status-im.data-store.chats :as data-store.chats]
             [status-im.data-store.messages :as data-store.messages]
             [status-im.transport.filters.core :as filters]
-            [status-im.chat.models :as chat-model]
-            [status-im.ethereum.json-rpc :as json-rpc]
             [status-im.mailserver.core :as mailserver]
-            [status-im.utils.config :as config]
-            [status-im.utils.datetime :as time]
             [status-im.utils.fx :as fx]
             [status-im.chat.models.message-list :as message-list]
-            [taoensso.timbre :as log]))
+            [taoensso.timbre :as log]
+            [status-im.chat.models.message-seen :as message-seen]))
 
-(defn cursor->clock-value [cursor]
+(defn cursor->clock-value
+  [^js cursor]
   (js/parseInt (.substring cursor 51 64)))
 
 (defn clock-value->cursor [clock-value]
@@ -26,10 +24,7 @@
   [{:keys [db] :as cofx} new-chats]
   (let [old-chats (:chats db)
         chats (reduce (fn [acc {:keys [chat-id] :as chat}]
-                        (assoc acc chat-id
-                               (assoc chat
-                                      :messages-initialized? false
-                                      :messages {})))
+                        (assoc acc chat-id chat))
                       {}
                       new-chats)
         chats (merge old-chats chats)]
@@ -40,9 +35,9 @@
 
 (fx/defn handle-chat-visibility-changed
   {:events [:chat.ui/message-visibility-changed]}
-  [{:keys [db] :as cofx} event]
-  (let [viewable-items (.-viewableItems event)
-        last-element (aget viewable-items (dec (.-length viewable-items)))]
+  [{:keys [db] :as cofx} ^js event]
+  (let [^js viewable-items (.-viewableItems event)
+        ^js last-element (aget viewable-items (dec (.-length viewable-items)))]
     (when last-element
       (let [last-element-clock-value (:clock-value (.-item last-element))
             chat-id (:chat-id (.-item last-element))]
@@ -54,12 +49,11 @@
                                             acc))
                                         {}
                                         (get-in db [:chats chat-id :messages]))]
-            {:db (update-in db [:chats chat-id]
-                            assoc
-                            :messages new-messages
-                            :all-loaded? false
-                            :message-list (message-list/add-many nil (vals new-messages))
-                            :cursor (clock-value->cursor last-element-clock-value))}))))))
+            {:db (-> db
+                     (assoc-in [:messages chat-id] new-messages)
+                     (assoc-in [:pagination-info chat-id] {:all-loaded? false
+                                                           :cursor (clock-value->cursor last-element-clock-value)})
+                     (assoc-in [:message-lists chat-id] (message-list/add-many nil (vals new-messages))))}))))))
 
 (fx/defn initialize-chats
   "Initialize persisted chats on startup"
@@ -72,7 +66,7 @@
   [{:keys [db]} current-chat-id _ err]
   (log/error "failed loading messages" current-chat-id err)
   (when current-chat-id
-    {:db (assoc-in db [:chats current-chat-id :loading-messages?] false)}))
+    {:db (assoc-in db [:pagination-info current-chat-id :loading-messages?] false)}))
 
 (fx/defn messages-loaded
   "Loads more messages for current chat"
@@ -83,10 +77,10 @@
    {:keys [cursor messages]}]
   (when-not (or (nil? current-chat-id)
                 (not= chat-id current-chat-id)
-                (and (get-in db [:chats current-chat-id :messages-initialized?])
+                (and (get-in db [:pagination-info current-chat-id :messages-initialized?])
                      (not= session-id
-                           (get-in db [:chats current-chat-id :messages-initialized?]))))
-    (let [already-loaded-messages    (get-in db [:chats current-chat-id :messages])
+                           (get-in db [:pagination-info current-chat-id :messages-initialized?]))))
+    (let [already-loaded-messages    (get-in db [:messages current-chat-id])
           loaded-unviewed-messages-ids (get-in db [:chats current-chat-id :loaded-unviewed-messages-ids] #{})
           ;; We remove those messages that are already loaded, as we might get some duplicates
           {:keys [all-messages
@@ -113,23 +107,23 @@
                                                  messages)]
       (fx/merge cofx
                 {:db (-> db
-                         (assoc-in [:chats current-chat-id :cursor-clock-value] (when (seq cursor) (cursor->clock-value cursor)))
+                         (assoc-in [:pagination-info current-chat-id :cursor-clock-value] (when (seq cursor) (cursor->clock-value cursor)))
                          (assoc-in [:chats current-chat-id :loaded-unviewed-messages-ids] unviewed-message-ids)
-                         (assoc-in [:chats current-chat-id :loading-messages?] false)
-                         (assoc-in [:chats current-chat-id :messages] all-messages)
-                         (update-in [:chats current-chat-id :message-list] message-list/add-many new-messages)
-                         (assoc-in [:chats current-chat-id :cursor] cursor)
-                         (assoc-in [:chats current-chat-id :all-loaded?]
+                         (assoc-in [:pagination-info current-chat-id :loading-messages?] false)
+                         (assoc-in [:messages current-chat-id] all-messages)
+                         (update-in [:message-lists current-chat-id] message-list/add-many new-messages)
+                         (assoc-in [:pagination-info current-chat-id :cursor] cursor)
+                         (assoc-in [:pagination-info current-chat-id :all-loaded?]
                                    (empty? cursor)))}
-                (chat-model/mark-messages-seen current-chat-id)))))
+                (message-seen/mark-messages-seen current-chat-id)))))
 
 (fx/defn load-more-messages
   [{:keys [db] :as cofx}]
   (when-let [current-chat-id (:current-chat-id db)]
-    (when-let [session-id (get-in db [:chats current-chat-id :messages-initialized?])]
-      (when-not (or (get-in db [:chats current-chat-id :all-loaded?])
-                    (get-in db [:chats current-chat-id :loading-messages?]))
-        (let [cursor (get-in db [:chats current-chat-id :cursor])
+    (when-let [session-id (get-in db [:pagination-info current-chat-id :messages-initialized?])]
+      (when-not (or (get-in db [:pagination-info current-chat-id :all-loaded?])
+                    (get-in db [:pagination-info current-chat-id :loading-messages?]))
+        (let [cursor (get-in db [:pagination-info current-chat-id :cursor])
               load-messages-fx (data-store.messages/messages-by-chat-id-rpc
                                 (waku/enabled? cofx)
                                 current-chat-id
@@ -142,10 +136,9 @@
                     (mailserver/load-gaps-fx current-chat-id)))))))
 
 (fx/defn load-messages
-  {:events [::load-messages]}
   [{:keys [db now] :as cofx}]
   (when-let [current-chat-id (:current-chat-id db)]
-    (if-not (get-in db [:chats current-chat-id :messages-initialized?])
+    (if-not (get-in db [:pagination-info current-chat-id :messages-initialized?])
       (do
        ; reset chat first-not-visible-items state
         (chat.state/reset)
@@ -154,9 +147,8 @@
                           ;; We keep track of whether there's a loaded chat
                           ;; which will be reset only if we hit home
                            (assoc :loaded-chat-id current-chat-id)
-                           (assoc-in [:chats current-chat-id :messages-initialized?] now))}
-                  (chat-model/mark-messages-seen current-chat-id)
+                           (assoc-in [:pagination-info current-chat-id :messages-initialized?] now))}
+                  (message-seen/mark-messages-seen current-chat-id)
                   (load-more-messages)))
       ;; We mark messages as seen in case we received them while on a different tab
-      (chat-model/mark-messages-seen cofx current-chat-id))))
-
+      (message-seen/mark-messages-seen cofx current-chat-id))))

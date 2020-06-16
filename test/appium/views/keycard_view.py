@@ -1,4 +1,4 @@
-from views.base_element import BaseButton, BaseText, BaseElement, BaseEditBox
+from views.base_element import BaseButton, BaseText, BaseEditBox
 from views.base_view import BaseView
 
 
@@ -23,6 +23,11 @@ class ConnectCardButton(BaseButton):
     def __init__(self, driver):
         super(ConnectCardButton, self).__init__(driver)
         self.locator = self.Locator.accessibility_id("connect-card")
+
+class ConnectSelectedCardButton(BaseButton):
+    def __init__(self, driver):
+        super(ConnectSelectedCardButton, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id("connect-selected-card")
 
 
 class DisconnectCardButton(BaseButton):
@@ -53,6 +58,20 @@ class ConfirmSeedPhraseInput(BaseEditBox):
         super(ConfirmSeedPhraseInput, self).__init__(driver)
         self.locator = self.Locator.accessibility_id("enter-word")
 
+class PairCodeText(BaseText):
+    def __init__(self, driver):
+        super(PairCodeText, self).__init__(driver)
+        self.locator = self.Locator.accessibility_id("pair-code")
+
+class PairCodeInput(BaseEditBox):
+    def __init__(self, driver):
+        super(PairCodeInput, self).__init__(driver)
+        self.locator = self.Locator.xpath_selector("//android.widget.EditText")
+
+class PairToThisDeviceButton(BaseButton):
+    def __init__(self, driver):
+        super(PairToThisDeviceButton, self).__init__(driver)
+        self.locator = self.Locator.text_selector("Pair to this device")
 
 class KeycardView(BaseView):
     def __init__(self, driver):
@@ -61,6 +80,10 @@ class KeycardView(BaseView):
         self.connect_card_button = ConnectCardButton(self.driver)
         self.disconnect_card_button = DisconnectCardButton(self.driver)
         self.reset_card_state_button = ResetCardButton(self.driver)
+        self.connect_selected_card_button = ConnectSelectedCardButton(self.driver)
+        self.pair_code_text = PairCodeText(self.driver)
+        self.pair_code_input = PairCodeInput(self.driver)
+        self.pair_to_this_device_button = PairToThisDeviceButton(self.driver)
 
         #keyboard
         self.one_button = OnePinKeyboardButton(self.driver)
@@ -74,6 +97,10 @@ class KeycardView(BaseView):
             self.one_button.click()
             self.two_button.click()
 
+    def enter_another_pin(self):
+        for _ in range(6):
+            self.two_button.click()
+
     def get_recovery_word(self, word_id):
         word_element = RecoveryWordText(self.driver, word_id)
         return word_element.text
@@ -84,14 +111,29 @@ class KeycardView(BaseView):
         word_number = ''.join(i for i in full_text if i.isdigit())
         return word_number
 
-    def backup_seed_phrase(self):
+    def get_seed_phrase(self):
         recovery_phrase = dict()
         for i in range(0,12):
             word = self.get_recovery_word(i)
             recovery_phrase[str(i+1)] = word
+        return recovery_phrase
+
+    def backup_seed_phrase(self):
+        recovery_phrase = self.get_seed_phrase()
         self.confirm_button.click()
         self.yes_button.click()
         for _ in range(2):
             number = self.get_required_word_number()
             self.confirm_seed_phrase_edit_box.set_value(recovery_phrase[number])
             self.next_button.click()
+
+    def confirm_pin_and_proceed(self):
+        self.next_button.click()
+        self.begin_setup_button.click()
+        self.connect_card_button.click()
+        self.enter_default_pin()
+        self.enter_default_pin()
+        self.next_button.scroll_to_element()
+        self.next_button.wait_for_visibility_of_element(20)
+        self.next_button.click()
+        self.yes_button.click()

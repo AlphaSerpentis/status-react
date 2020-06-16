@@ -1,9 +1,8 @@
 (ns status-im.ui.screens.routing.profile-stack
-  (:require [status-im.utils.config :as config]
-            [status-im.ui.screens.profile.user.views :as profile.user]
+  (:require [status-im.ui.screens.profile.user.views :as profile.user]
             [status-im.ui.screens.ens.views :as ens]
             [status-im.ui.screens.contacts-list.views :as contacts-list]
-            [status-im.ui.screens.profile.photo-capture.views :as photo-capture]
+            [status-im.ui.screens.profile.contact.views :as profile.contact]
             [status-im.ui.screens.bootnodes-settings.edit-bootnode.views
              :as
              edit-bootnode]
@@ -27,7 +26,9 @@
             [status-im.ui.screens.mobile-network-settings.view
              :as
              mobile-network-settings]
-            [status-im.network.module :as network]
+            [status-im.network.ui.edit-network.views :as edit-network]
+            [status-im.network.ui.views :as network]
+            [status-im.network.ui.network-details.views :as network-details]
             [status-im.ui.screens.network-info.views :as network-info]
             [status-im.ui.screens.log-level-settings.views :as log-level-settings]
             [status-im.ui.screens.fleet-settings.views :as fleet-settings]
@@ -45,6 +46,7 @@
   [stack {:initial-route-name :my-profile
           :header-mode        :none}
    [{:name      :my-profile
+     :insets    {:top false}
      :style     {:padding-bottom tabbar.styles/tabs-diff}
      :component profile.user/my-profile}
     {:name      :contacts-list
@@ -63,8 +65,9 @@
      :component ens/name-details}
     {:name      :blocked-users-list
      :component contacts-list/blocked-users-list}
-    {:name      :profile-photo-capture
-     :component photo-capture/profile-photo-capture}
+    {:name      :profile
+     :insets    {:top false}
+     :component profile.contact/profile}
     {:name      :bootnodes-settings
      :component bootnodes-settings/bootnodes-settings}
     {:name      :installations
@@ -98,13 +101,13 @@
     {:name      :manage-dapps-permissions
      :component dapps-permissions/manage}
     {:name      :network-settings
-     :component network/network-settings-view}
+     :component network/network-settings}
     {:name      :network-details
-     :component network/network-details-view}
+     :component network-details/network-details}
     {:name      :network-info
      :component network-info/network-info}
     {:name      :edit-network
-     :component network/edit-network-view}
+     :component edit-network/edit-network}
     {:name      :log-level-settings
      :component log-level-settings/log-level-settings}
     {:name      :fleet-settings
@@ -123,5 +126,7 @@
      :component hardwallet.settings/keycard-settings}
     {:name      :reset-card
      :component hardwallet.settings/reset-card}
+    {:name      :keycard-pin
+     :component hardwallet.settings/reset-pin}
     {:name      :enter-pin-settings
      :component hardwallet.pin/enter-pin}]])

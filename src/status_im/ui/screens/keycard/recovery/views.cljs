@@ -1,24 +1,24 @@
 (ns status-im.ui.screens.keycard.recovery.views
-  (:require-macros [status-im.utils.views :refer [defview letsubs]])
-  (:require [status-im.multiaccounts.recover.core :as multiaccounts.recover]
-            [status-im.ui.components.react :as react]
+  (:require [re-frame.core :as re-frame]
             [status-im.hardwallet.recovery :as hardwallet.recovery]
-            [status-im.ui.screens.keycard.styles :as styles]
-            [status-im.ui.screens.keycard.views :as views]
-            [status-im.ui.components.toolbar.view :as toolbar]
-            [status-im.ui.components.colors :as colors]
-            [status-im.ui.components.icons.vector-icons :as vector-icons]
             [status-im.i18n :as i18n]
-            [re-frame.core :as re-frame]
             [status-im.react-native.resources :as resources]
+            [status-im.ui.components.colors :as colors]
             [status-im.ui.components.common.common :as components.common]
-            [status-im.ui.components.text-input.view :as text-input]
-            [status-im.utils.gfycat.core :as gfy]
-            [status-im.utils.identicon :as identicon]
-            [status-im.utils.core :as utils.core]
-            [status-im.ui.screens.hardwallet.pin.views :as pin.views]
+            [status-im.ui.components.icons.vector-icons :as vector-icons]
+            [status-im.ui.components.react :as react]
+            [status-im.ui.components.toolbar.view :as toolbar]
             [status-im.ui.components.tooltip.views :as tooltip]
-            [status-im.ui.components.topbar :as topbar]))
+            [status-im.ui.components.topbar :as topbar]
+            [status-im.ui.screens.hardwallet.pin.views :as pin.views]
+            [status-im.ui.screens.keycard.styles :as styles]
+            [status-im.utils.core :as utils.core]
+            [status-im.utils.gfycat.core :as gfy]
+            [status-im.constants :as constants]
+            [quo.core :as quo]
+            [status-im.ui.screens.keycard.views :as keycard.views]
+            [status-im.utils.identicon :as identicon])
+  (:require-macros [status-im.utils.views :refer [defview letsubs]]))
 
 (defn intro []
   [react/view styles/container
@@ -42,7 +42,8 @@
                            :text-align  :center}}
        (i18n/label :t/keycard-recovery-intro-text)]]
      [react/view {:margin-top 33}
-      [react/touchable-highlight {:on-press #(.openURL react/linking "https://keycard.status.im")}
+      [react/touchable-highlight {:on-press #(.openURL ^js react/linking
+                                                       constants/keycard-integration-link)}
        [react/view {:flex-direction  :row
                     :align-items     :center
                     :justify-content :center}
@@ -83,26 +84,34 @@
        {:handler #(re-frame/dispatch [::hardwallet.recovery/cancel-pressed])
         :style   {:padding-left 21}}
        (i18n/label :t/cancel)]
-      [react/text {:style {:color colors/gray}}
-       (i18n/label :t/step-i-of-n {:number 2
-                                   :step   2})]]
-     [react/view {:flex            1
-                  :flex-direction  :column
-                  :justify-content :space-between
-                  :align-items     :center}
-      [react/view {:flex-direction :column
-                   :align-items    :center}
-       [react/view {:margin-top 16}
-        [react/text {:style {:typography :header
-                             :text-align :center}}
-         (i18n/label :t/enter-your-code)]]]
-      [pin.views/pin-view
-       {:pin           pin
-        :retry-counter retry-counter
-        :small-screen? small-screen?
-        :status        status
-        :error-label   error-label
-        :step          :import-multiaccount}]]]))
+      (when-not (#{:frozen-card :blocked-card} status)
+        [react/text {:style {:color colors/gray}}
+         (i18n/label :t/step-i-of-n {:number 2
+                                     :step   2})])]
+     (case status
+       :frozen-card
+       [keycard.views/frozen-card]
+
+       :blocked-card
+       [keycard.views/blocked-card]
+
+       [react/view {:flex            1
+                    :flex-direction  :column
+                    :justify-content :space-between
+                    :align-items     :center}
+        [react/view {:flex-direction :column
+                     :align-items    :center}
+         [react/view {:margin-top 16}
+          [react/text {:style {:typography :header
+                               :text-align :center}}
+           (i18n/label :t/enter-your-code)]]]
+        [pin.views/pin-view
+         {:pin           pin
+          :retry-counter retry-counter
+          :small-screen? small-screen?
+          :status        status
+          :error-label   error-label
+          :step          :import-multiaccount}]])]))
 
 (defview pair []
   (letsubs [pair-code [:hardwallet-pair-code]
@@ -138,15 +147,14 @@
                                :color      (if (> 3 free-pairing-slots) colors/red colors/gray)}}
            (i18n/label :t/keycard-free-pairing-slots {:n free-pairing-slots})]])]
       [react/view
-       [text-input/text-input-with-label
-        {:on-change-text    #(re-frame/dispatch [:keycard.onboarding.pair.ui/input-changed %])
-         :auto-focus        true
-         :on-submit-editing #(re-frame/dispatch [:keycard.onboarding.pair.ui/input-submitted])
-         :placeholder       nil
-         :container         {:background-color colors/white}
-         :style             {:background-color colors/white
-                             :height           24
-                             :typography       :header}}]
+       [react/view {:padding         16
+                    :justify-content :center}
+        [quo/text-input
+         {:on-change-text    #(re-frame/dispatch [:keycard.onboarding.pair.ui/input-changed %])
+          :auto-focus        true
+          :on-submit-editing #(re-frame/dispatch [:keycard.onboarding.pair.ui/input-submitted])
+          :placeholder       (i18n/label :t/pair-code-placeholder)
+          :monospace         true}]]
        [react/view {:margin-top 5
                     :width      250}
         [tooltip/tooltip error]]]

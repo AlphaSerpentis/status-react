@@ -1,16 +1,9 @@
 (ns status-im.data-store.messages
   (:require [clojure.set :as clojure.set]
-            [re-frame.core :as re-frame]
-            [status-im.utils.fx :as fx]
-            [clojure.string :as string]
-            [taoensso.timbre :as log]
-            [re-frame.core :as re-frame]
-            [status-im.waku.core :as waku]
-            [status-im.utils.types :as utils.types]
-            [status-im.utils.config :as config]
             [status-im.ethereum.json-rpc :as json-rpc]
-            [status-im.constants :as constants]
-            [status-im.utils.core :as utils]))
+            [status-im.utils.fx :as fx]
+            [status-im.waku.core :as waku]
+            [taoensso.timbre :as log]))
 
 (defn ->rpc [{:keys [content] :as message}]
   (cond-> message
@@ -38,14 +31,15 @@
                                                            :commandState :command-state})
       (assoc :content {:chat-id (:chatId message)
                        :text (:text message)
+                       :image (:image message)
                        :sticker (:sticker message)
                        :ens-name (:ensName message)
                        :line-count (:lineCount message)
                        :parsed-text (:parsedText message)
-                       :rtl (:rtl message)
+                       :rtl? (:rtl message)
                        :response-to (:responseTo message)}
              :outgoing (boolean (:outgoingStatus message)))
-      (dissoc :ensName :chatId :text :rtl :responseTo :sticker :lineCount :parsedText)))
+      (dissoc :ensName :chatId :text :rtl :responseTo :image :sticker :lineCount :parsedText)))
 
 (defn update-outgoing-status-rpc [waku-enabled? message-id status]
   {::json-rpc/call [{:method (json-rpc/call-ext-method waku-enabled? "updateMessageOutgoingStatus")

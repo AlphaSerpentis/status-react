@@ -1,28 +1,20 @@
 (ns status-im.init.core
-  (:require [re-frame.core :as re-frame]
+  (:require [clojure.string :as string]
+            [re-frame.core :as re-frame]
             [status-im.multiaccounts.login.core :as multiaccounts.login]
             [status-im.native-module.core :as status]
             [status-im.network.net-info :as network]
-            [status-im.react-native.js-dependencies :as rn-dependencies]
-            [status-im.ui.screens.db :refer [app-db]]
+            [status-im.db :refer [app-db]]
             [status-im.utils.fx :as fx]
-            [status-im.utils.platform :as platform]
-            [clojure.string :as string]
-            [status-im.utils.theme :as theme]
-            [status-im.ui.components.colors :as colors]))
-
-(defn restore-native-settings! []
-  (when platform/desktop?
-    (.getValue rn-dependencies/desktop-config "logging_enabled"
-               #(re-frame/dispatch [:set-in [:desktop/desktop :logging-enabled]
-                                    (if (boolean? %)
-                                      %
-                                      (cljs.reader/read-string %))]))))
+            [status-im.theme.core :as theme]
+            [status-im.utils.theme :as utils.theme]))
 
 (fx/defn initialize-app-db
   "Initialize db to initial state"
-  [{{:keys [hardwallet initial-props desktop/desktop
-            supported-biometric-auth network/type app-active-since]} :db now :now}]
+  [{{:keys [hardwallet initial-props supported-biometric-auth app-active-since]
+     :desktop/keys [desktop]
+     :network/keys [type]} :db
+    now :now}]
   {:db (assoc app-db
               :initial-props initial-props
               :desktop/desktop (merge desktop (:desktop/desktop app-db))
@@ -35,9 +27,10 @@
 (fx/defn initialize-views
   {:events [::initialize-view]}
   [cofx {:keys [logout?]}]
-  (let [{{:multiaccounts/keys [multiaccounts] :as db} :db} cofx]
+  (let [{{:multiaccounts/keys [multiaccounts]} :db} cofx]
     (when (and (seq multiaccounts) (not logout?))
-      (let [{:keys [key-uid public-key photo-path name]} (first (#(sort-by :last-sign-in > %) (vals multiaccounts)))]
+      (let [{:keys [key-uid public-key photo-path name]}
+            (first (sort-by :timestamp > (vals multiaccounts)))]
         (multiaccounts.login/open-login cofx key-uid photo-path name public-key)))))
 
 (fx/defn initialize-multiaccounts
@@ -65,7 +58,6 @@
             {:get-supported-biometric-auth          nil
              ::init-theme                           nil
              ::init-keystore                        nil
-             ::restore-native-settings              nil
              ::open-multiaccounts                   #(re-frame/dispatch [::initialize-multiaccounts % {:logout? false}])
              :ui/listen-to-window-dimensions-change nil
              ::network/listen-to-network-info       nil
@@ -74,10 +66,6 @@
              :hardwallet/check-nfc-enabled          nil
              :hardwallet/retrieve-pairings          nil}
             (initialize-app-db)))
-
-(re-frame/reg-fx
- ::restore-native-settings
- restore-native-settings!)
 
 (re-frame/reg-fx
  ::open-multiaccounts
@@ -92,6 +80,6 @@
 (re-frame/reg-fx
  ::init-theme
  (fn []
-   (theme/add-mode-change-listener #(re-frame/dispatch [:system-theme-mode-changed %]))
-   (when (theme/is-dark-mode)
-     (colors/set-theme :dark))))
+   (utils.theme/add-mode-change-listener #(re-frame/dispatch [:system-theme-mode-changed %]))
+   (when (utils.theme/is-dark-mode)
+     (theme/change-theme :dark))))

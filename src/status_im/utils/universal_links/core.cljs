@@ -8,12 +8,10 @@
             [status-im.constants :as constants]
             [status-im.ethereum.ens :as ens]
             [status-im.ethereum.core :as ethereum]
-            [status-im.pairing.core :as pairing]
             [status-im.utils.security :as security]
-            [status-im.ui.components.list-selection :as list-selection]
             [status-im.ui.components.react :as react]
             [status-im.ui.screens.add-new.new-chat.db :as new-chat.db]
-            [status-im.ui.screens.navigation :as navigation]
+            [status-im.navigation :as navigation]
             [status-im.utils.fx :as fx]
             [taoensso.timbre :as log]
             [status-im.wallet.choose-recipient.core :as choose-recipient]))
@@ -21,6 +19,7 @@
 ;; TODO(yenda) investigate why `handle-universal-link` event is
 ;; dispatched 7 times for the same link
 
+(def private-chat-regex #".*/chat/private/(.*)$")
 (def public-chat-regex #"(?:https?://join\.)?status[.-]im(?::/)?/(?:chat/public/([a-z0-9\-]+)$|([a-z0-9\-]+))$")
 (def profile-regex #"(?:https?://join\.)?status[.-]im(?::/)?/(?:u/(0x.*)$|u/(.*)$|user/(.*))$")
 (def browse-regex #"(?:https?://join\.)?status[.-]im(?::/)?/(?:b/(.*)$|browse/(.*))$")
@@ -30,6 +29,7 @@
               :internal "status-im:/"})
 
 (def links {:public-chat "%s/%s"
+            :private-chat "%s/p/%s"
             :user        "%s/u/%s"
             :browse      "%s/b/%s"})
 
@@ -57,19 +57,14 @@
   (boolean
    (re-matches constants/regx-deep-link url)))
 
-(defn open! [url]
-  (log/info "universal-links:  opening " url)
-  (if-let [dapp-url (match-url url browse-regex)]
-    (when (security/safe-link? url)
-      (list-selection/browse-dapp dapp-url))
-    ;; We need to dispatch here, we can't openURL directly
-    ;; as it is opened in safari on iOS
-    (re-frame/dispatch [:handle-universal-link url])))
-
 (fx/defn handle-browse [cofx url]
   (log/info "universal-links: handling browse" url)
   (when (security/safe-link? url)
     {:browser/show-browser-selection url}))
+
+(fx/defn handle-private-chat [cofx chat-id]
+  (log/info "universal-links: handling private chat" chat-id)
+  (chat/start-chat cofx chat-id {}))
 
 (fx/defn handle-public-chat [cofx public-chat]
   (log/info "universal-links: handling public chat" public-chat)
@@ -102,8 +97,8 @@
 
 (fx/defn handle-eip681 [cofx url]
   (fx/merge cofx
-            (choose-recipient/resolve-ens-addresses url)
-            (navigation/navigate-to-cofx  :wallet nil)))
+            (choose-recipient/parse-eip681-uri-and-resolve-ens url)
+            (navigation/navigate-to-cofx :wallet nil)))
 
 (defn handle-not-found [full-url]
   (log/info "universal-links: no handler for " full-url))
@@ -119,6 +114,9 @@
   "Match a url against a list of routes and handle accordingly"
   [cofx url]
   (cond
+
+    (match-url url private-chat-regex)
+    (handle-private-chat cofx (match-url url private-chat-regex))
 
     (spec/valid? :global/public-key (match-url url profile-regex))
     (handle-view-profile cofx {:public-key (match-url url profile-regex)})
@@ -174,15 +172,16 @@
   and handles incoming url if the app has been started by clicking on a link"
   []
   (log/debug "universal-links: initializing")
-  (.. react/linking
-      (getInitialURL)
-      (then dispatch-url))
-  (.. react/linking
-      (addEventListener "url" url-event-listener)))
+  ;;NOTE: https://github.com/facebook/react-native/issues/15961
+  ;; workaround for getInitialURL returning null when opening the
+  ;; app from a universal link after closing it with the back button
+  (js/setTimeout #(-> (.getInitialURL ^js react/linking)
+                      (.then dispatch-url))
+                 200)
+  (.addEventListener ^js react/linking "url" url-event-listener))
 
 (defn finalize
   "Remove event listener for url"
   []
   (log/debug "universal-links: finalizing")
-  (.. react/linking
-      (removeEventListener "url" url-event-listener)))
+  (.removeEventListener ^js react/linking "url" url-event-listener))

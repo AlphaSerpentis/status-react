@@ -1,14 +1,13 @@
 (ns status-im.node.core
   (:require [re-frame.core :as re-frame]
             [status-im.constants :as constants]
+            [status-im.ethereum.ens :as ens]
             [status-im.ethereum.json-rpc :as json-rpc]
             [status-im.native-module.core :as status]
             [status-im.utils.config :as config]
             [status-im.utils.fx :as fx]
             [status-im.utils.platform :as utils.platform]
-            [status-im.utils.types :as types]
-            [taoensso.timbre :as log]
-            [status-im.ethereum.ens :as ens])
+            [status-im.utils.types :as types])
   (:require-macros [status-im.utils.slurp :refer [slurp]]))
 
 (defn- add-custom-bootnodes [config network all-bootnodes]
@@ -74,7 +73,7 @@
 (def default-fleets (slurp "resources/config/fleets.json"))
 
 (defn fleets [{:keys [custom-fleets]}]
-  (as-> [(default-fleets)] $
+  (as-> [default-fleets] $
     (mapv #(:fleets (types/json->clj %)) $)
     (conj $ custom-fleets)
     (reduce merge $)))
@@ -104,7 +103,7 @@
 
       current-fleet
       (assoc :NoDiscovery   false
-             :Rendezvous    (not (empty? rendezvous-nodes))
+             :Rendezvous    (boolean (seq rendezvous-nodes))
              :ClusterConfig {:Enabled true
                              :Fleet              (name current-fleet-key)
                              :BootNodes
@@ -127,7 +126,7 @@
              {:Enabled true
               :BloomFilterMode waku-bloom-filter-mode
               :LightClient true
-              :MinimumPoW 0.001}
+              :MinimumPoW 0.000001}
              :ShhextConfig
              {:BackupDisabledDataDir      (utils.platform/no-backup-directory)
               :InstallationID             installation-id

@@ -1,4 +1,4 @@
-library 'status-react-jenkins@master'
+library 'status-react-jenkins@v1.1.6'
 
 pipeline {
   agent { label params.AGENT_LABEL }
@@ -36,7 +36,7 @@ pipeline {
     }
     stage('Build status-go') {
       steps { script {
-        def platforms = ['android', 'desktop', 'ios']
+        def platforms = ['mobile.android', 'mobile.ios', 'desktop']
         if (uname != "Darwin") {
           platforms.removeAll { it == "ios" }
         }
@@ -65,7 +65,7 @@ pipeline {
       steps { script {
         /* build/fetch things required to build jsbundle and android */
         nix.build(
-          attr: 'targets.mobile.android.buildInputs',
+          attr: 'targets.mobile.android.release.buildInputs',
           sandbox: false,
           pure: false,
           link: false

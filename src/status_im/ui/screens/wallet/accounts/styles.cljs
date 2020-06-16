@@ -1,5 +1,29 @@
 (ns status-im.ui.screens.wallet.accounts.styles
-  (:require [status-im.ui.components.colors :as colors]))
+  (:require [quo.animated :as animated]
+            [status-im.ui.components.colors :as colors]))
+
+(defn container [{:keys [minimized]}]
+  (when-not minimized
+    {:padding-bottom     8
+     :padding-horizontal 16}))
+
+(defn value-container [{:keys [minimized animation]}]
+  (when minimized
+    {:opacity animation}))
+
+(defn value-text [{:keys [minimized]}]
+  {:font-size   (if minimized 20 32)
+   :line-height 40
+   :color       colors/black})
+
+(defn accounts-mnemonic [{:keys [animation]}]
+  {:opacity         (animated/mix animation 1 0)
+   :flex            1
+   :justify-content :center
+   :position        :absolute
+   :top             0
+   :bottom          0
+   :left            0})
 
 (defn card-common []
   {:margin-vertical   16

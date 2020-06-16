@@ -1,14 +1,10 @@
 (ns status-im.network.net-info
-  (:require [taoensso.timbre :as log]
-            [status-im.ui.components.react :as react-components]
-            [status-im.utils.platform :as platform]
-            [re-frame.core :as re-frame]
-            [status-im.utils.fx :as fx]
-            [status-im.mailserver.core :as mailserver]
-            [status-im.chaos-mode.core :as chaos-mode]
+  (:require [re-frame.core :as re-frame]
             [status-im.native-module.core :as status]
             [status-im.ui.screens.mobile-network-settings.events :as mobile-network]
-            [status-im.wallet.core :as wallet]))
+            [status-im.utils.fx :as fx]
+            [status-im.wallet.core :as wallet]
+            ["@react-native-community/netinfo" :default net-info]))
 
 (fx/defn change-network-status
   [{:keys [db] :as cofx} is-connected?]
@@ -38,8 +34,8 @@
                 (change-network-type old-network-type type (:is-connection-expensive details))))))
 
 (defn add-net-info-listener []
-  (when react-components/net-info
-    (.addEventListener react-components/net-info
+  (when net-info
+    (.addEventListener ^js net-info
                        #(re-frame/dispatch [::network-info-changed
                                             (js->clj % :keywordize-keys true)]))))
 

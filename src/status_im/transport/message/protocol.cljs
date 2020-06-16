@@ -2,7 +2,6 @@
  status-im.transport.message.protocol
   (:require [re-frame.core :as re-frame]
             [status-im.ethereum.json-rpc :as json-rpc]
-            [status-im.utils.config :as config]
             [status-im.utils.fx :as fx]
             [taoensso.timbre :as log]))
 
@@ -10,6 +9,7 @@
                                          text
                                          response-to
                                          ens-name
+                                         image-path
                                          message-type
                                          sticker
                                          content-type]
@@ -21,6 +21,7 @@
                                :text text
                                :responseTo response-to
                                :ensName ens-name
+                               :imagePath image-path
                                :sticker sticker
                                :contentType content-type}]
                      :on-success

@@ -1,8 +1,9 @@
 import pytest
-from tests import marks, connection_not_secure_text, connection_is_secure_text
+from tests import marks, connection_not_secure_text, connection_is_secure_text, test_dapp_url
 from tests.base_test_case import SingleDeviceTestCase
 from views.sign_in_view import SignInView
 from views.dapps_view import DappsView
+import time
 
 
 @pytest.mark.all
@@ -75,6 +76,37 @@ class TestBrowsing(SingleDeviceTestCase):
         daap_view = home_view.dapp_tab_button.click()
         daap_view.open_url('https://www.cryptokitties.domainname').find_text_part('This site is blocked')
 
+
+    @marks.testrail_id(6300)
+    @marks.medium
+    def test_webview_security(self):
+        home_view = SignInView(self.driver).create_user()
+        daap_view = home_view.dapp_tab_button.click()
+
+        browsing_view = daap_view.open_url('https://simpledapp.status.im/webviewtest/url-spoof-ssl.html')
+        browsing_view.url_edit_box_lock_icon.click()
+        if not browsing_view.element_by_text_part(connection_not_secure_text).is_element_displayed():
+            self.errors.append("Broken certificate displayed as secure connection \n")
+
+        browsing_view.cross_icon.click()
+        daap_view.open_url('https://simpledapp.status.im/webviewtest/webviewtest.html')
+        browsing_view.element_by_text_part('204').click()
+        if browsing_view.element_by_text_part('google.com').is_element_displayed():
+            self.errors.append("URL changed on attempt to redirect to no-content page \n")
+
+        browsing_view.cross_icon.click()
+        daap_view.open_url('https://simpledapp.status.im/webviewtest/url-blank.html')
+        if daap_view.edit_url_editbox.text == '':
+            self.errors.append("Blank URL value. Must show the actual URL \n")
+
+        browsing_view.cross_icon.click()
+        daap_view.open_url('https://simpledapp.status.im/webviewtest/port-timeout.html')
+        # wait up  ~2.5 mins for port time out
+        if daap_view.find_text_part('example.com', 150):
+            self.errors.append("URL spoof due to port timeout \n")
+
+        self.errors.verify_no_errors()
+
     @marks.testrail_id(5430)
     @marks.medium
     def test_connection_is_not_secure(self):
@@ -117,7 +149,7 @@ class TestBrowsing(SingleDeviceTestCase):
         for entry in ('google.com', 'status.im'):
             browsing_view = dapp_view.open_url(entry)
             browsing_view.cross_icon.click()
-        dapp_view.remove_browser_entry_long_press('Status - Private', clear_all=True)
+        dapp_view.remove_browser_entry_long_press('status', clear_all=True)
         home_view.relogin()
         home_view.dapp_tab_button.click()
         if not dapp_view.element_by_text('Browser history will appear here').is_element_displayed():
@@ -160,3 +192,27 @@ class TestBrowsing(SingleDeviceTestCase):
         status_test_dapp.find_full_text('Sign message')
         status_test_dapp.browser_refresh_page_button.click()
         status_test_dapp.find_full_text('defaultAccount')
+
+    @marks.testrail_id(5456)
+    @marks.medium
+    def test_can_access_images_by_link(self):
+        urls = {
+            'https://cdn.dribbble.com/users/45534/screenshots/3142450/logo_dribbble.png':
+                'url_1.png',
+            'https://thebitcoinpub-91d3.kxcdn.com/uploads/default/original/2X/d/db97611b41a96cb7642b06636b82c0800678b140.jpg':
+                'url_2.png',
+            'https://steemitimages.com/DQmYEjeBuAKVRa3b3ZqwLicSHaPUm7WFtQqohGaZdA9ghjx/images%20(4).jpeg':
+                'url_3.png'
+        }
+        sign_in_view = SignInView(self.driver)
+        home_view = sign_in_view.create_user()
+        dapp_view = home_view.dapp_tab_button.click()
+        for url in urls:
+            self.driver.set_clipboard_text(url)
+            dapp_view.enter_url_editbox.click()
+            dapp_view.paste_text()
+            dapp_view.confirm()
+            dapp_view.progress_bar.wait_for_invisibility_of_element(20)
+            if not dapp_view.web_page.is_element_image_equals_template(urls[url]):
+                self.driver.fail('Web page does not match expected template %s' % urls[url])
+            dapp_view.cross_icon.click()

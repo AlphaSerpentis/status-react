@@ -1,4 +1,3 @@
-import time
 
 import emoji
 import random
@@ -165,13 +164,13 @@ class TestPublicChatMultipleDevice(MultipleDeviceTestCase):
         chat_1.chat_message_input.send_keys(emoji.emojize(emoji_name))
         chat_1.send_message_button.click()
 
-        chat_1.chat_element_by_text(emoji_unicode).long_press_element()
+        chat_1.element_by_text_part(emoji_unicode).long_press_element()
         chat_1.element_by_text('Copy').click()
         chat_1.chat_message_input.paste_text_from_clipboard()
         if chat_1.chat_message_input.text != emoji_unicode:
             self.errors.append('Emoji message was not copied')
 
-        chat_element_2 = chat_2.chat_element_by_text(emoji_unicode)
+        chat_element_2 = chat_2.element_by_text_part(emoji_unicode)
         if not chat_element_2.is_element_displayed(sec=10):
             self.errors.append('Message with emoji was not received in public chat by the recipient')
 
@@ -187,7 +186,7 @@ class TestPublicChatMultipleDevice(MultipleDeviceTestCase):
 
     @marks.testrail_id(6275)
     @marks.medium
-    def test_public_chat_messaging(self):
+    def test_public_chat_messages_received_while_different_tab_opened(self):
         self.create_drivers(2)
         device_1, device_2 = SignInView(self.drivers[0]), SignInView(self.drivers[1])
         home_1, home_2 = device_1.create_user(), device_2.create_user()
@@ -216,12 +215,14 @@ class TestPublicChatSingleDevice(SingleDeviceTestCase):
         tag_message = '#spectentur'
         chat.send_message(tag_message)
         chat.element_starts_with_text(tag_message).click()
-        time.sleep(4)
+        chat.element_by_text_part('montagne-angerufen').wait_for_invisibility_of_element()
         if not chat.user_name_text.text == tag_message:
             self.driver.fail('Could not redirect a user to a public chat tapping the tag message.')
-        home = chat.get_back_to_home_view()
-        if not home.chat_name_text.text == tag_message:
+        home_view = chat.get_back_to_home_view()
+        if not home_view.element_by_text(tag_message).is_element_displayed():
             self.driver.fail('Could not find the public chat in user chat list.')
+        #if not home_view.chat_name_text.text == tag_message:
+
 
     @marks.testrail_id(6205)
     @marks.high

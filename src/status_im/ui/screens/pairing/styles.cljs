@@ -1,6 +1,5 @@
 (ns status-im.ui.screens.pairing.styles
   (:require [status-im.ui.components.colors :as colors]
-            [status-im.ui.components.styles :as components.styles]
             [status-im.utils.styles :as styles]))
 
 (def wrapper
@@ -53,9 +52,6 @@
    :align-items      :center
    :justify-content  :center})
 
-(def installation-status
-  {:color colors/gray})
-
 (def pairing-actions-text
   {:flex        1
    :margin-left 16})
@@ -80,15 +76,3 @@
   {:flex-direction    :row
    :margin-horizontal 12
    :margin-vertical   15})
-
-(def input-container
-  {:flex-direction    :row
-   :align-items       :center
-   :justify-content   :space-between
-   :border-radius     components.styles/border-radius
-   :height            52
-   :margin-top        15})
-
-(styles/def input
-  {:flex    1
-   :android {:padding 0}})

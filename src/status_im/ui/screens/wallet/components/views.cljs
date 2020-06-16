@@ -4,11 +4,11 @@
             [reagent.core :as reagent]
             [status-im.i18n :as i18n]
             [status-im.ui.components.react :as react]
-            [status-im.ui.components.styles :as components.styles]
             [status-im.ui.components.toolbar.view :as topbar]
             [status-im.ui.screens.wallet.components.styles :as styles]
-            [status-im.ui.components.text-input.view :as text-input]
-            [status-im.ui.components.colors :as colors])
+            [quo.core :as quo]
+            [status-im.ui.components.colors :as colors]
+            [status-im.utils.debounce :as debounce])
   (:require-macros [status-im.utils.views :as views]))
 
 (defn separator []
@@ -27,7 +27,7 @@
    [topbar/text-action
     {:disabled? (string/blank? content)
      :style     {:margin-right 16}
-     :handler   #(re-frame/dispatch [:wallet.send/set-recipient content])}
+     :handler   #(debounce/dispatch-and-chill [:wallet.send/set-recipient content] 3000)}
     (i18n/label :t/done)]])
 
 (views/defview contact-code []
@@ -37,11 +37,11 @@
      [react/view {:padding-horizontal 16
                   :padding-vertical   24
                   :flex               1}
-      [text-input/text-input-with-label
+      [quo/text-input
        {:multiline           true
-        :container           {:height           98
-                              :padding-vertical 8}
+        :height              98
         :placeholder         (i18n/label :t/recipient-code-placeholder)
+        :text-align-vertical :top
         :on-change-text      #(reset! content %)
         :accessibility-label :recipient-address-input}]
       [react/text {:style {:color           colors/gray
